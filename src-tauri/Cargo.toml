@@ -1,12 +1,15 @@
 [package]
 name = "minearcade"
-version = "0.1.0"
-description = "MineArcade Minecraft launcher"
+version = "0.2.0"
+description = "MineArcade - the official MineArcade Minecraft launcher"
 authors = ["MineArcade"]
 edition = "2021"
+rust-version = "1.77"
+license = "MIT"
 
-[lib]
+# The library holds the launcher logic so it can be unit tested; main.rs is a thin shell.
 # The _lib suffix avoids a name clash between the lib and bin targets on Windows.
+[lib]
 name = "minearcade_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
@@ -14,23 +17,52 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-os = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2", "charset"] }
-tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
-futures = "0.3"
+thiserror = "2"
 anyhow = "1"
+
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# `rustls-tls` keeps the binary self-contained (no OpenSSL dependency on Linux).
+# `multipart` is needed to upload a skin to the Minecraft services API.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "stream",
+    "rustls-tls",
+    "gzip",
+    "multipart",
+] }
+
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+md-5 = "0.10"
 sha1 = "0.10"
-hex = "0.4"
-base64 = "0.22"
-zip = { version = "2", default-features = false, features = ["deflate"] }
-uuid = { version = "1", features = ["v4"] }
-dirs = "6"
-open = "5"
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate", "time"] }
+# `servers.dat` is gzipped NBT. fastnbt hands back a full value tree, which is
+# what lets us edit the fields we own without dropping the ones we don't.
+fastnbt = "2"
+flate2 = "1"
+dirs = "5"
+log = "0.4"
+walkdir = "2"
+# Reads the Modrinth App's SQLite database (app.db) during launcher import;
+# bundled keeps users off a system SQLite install.
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+url = "2.5.8"
 
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = "s"
+panic = "abort"
 strip = true

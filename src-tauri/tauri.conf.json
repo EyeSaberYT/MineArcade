@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MineArcade",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "org.minearcade.launcher",
   "build": {
     "frontendDist": "../src"
@@ -10,27 +10,51 @@
     "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
         "title": "MineArcade",
-        "width": 1120,
-        "height": 720,
-        "minWidth": 920,
-        "minHeight": 620,
-        "center": true
+        "width": 1240,
+        "height": 780,
+        "minWidth": 960,
+        "minHeight": 640,
+        "center": true,
+        "theme": "Dark",
+        "dragDropEnabled": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: https://mc-heads.net; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https://cdn.modrinth.com https://media.forgecdn.net https://www.curseforge.com https://textures.minecraft.net https://mc-heads.net data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost https://textures.minecraft.net; font-src 'self' data:",
+      "assetProtocol": {
+        "enable": true
+      }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "category": "Game",
+    "shortDescription": "The MineArcade Minecraft launcher",
+    "longDescription": "MineArcade is a fast, ad-free Minecraft launcher with Modrinth and CurseForge mods, modpacks, instance management and one-click joining of the MineArcade server.",
+    "copyright": "MIT Licensed",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.png",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "digestAlgorithm": "sha256"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEwREE3MTdCMEVGRDc5RUQKUldUdGVmME9lM0hhb0lYelhyckRNZlN4NGpsbkJMMEVzN0Z4bnYzS2c0TkdXaC9zNWxOMjQzV3gK",
+      "requireSignedVersion": true,
+      "endpoints": ["https://github.com/EyeSaberYT/MineArcade/releases/latest/download/latest.json"],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
