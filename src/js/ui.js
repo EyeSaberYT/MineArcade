@@ -52,9 +52,9 @@ export function el(markup) {
   return template.content.firstElementChild;
 }
 
-/** Replace an element's contents with markup. */
+/** Replace an element's contents with markup (a string, `html` result, or an array of them). */
 export function setHtml(node, markup) {
-  node.innerHTML = String(markup);
+  node.innerHTML = Array.isArray(markup) ? renderValue(markup) : String(markup);
   wireImages(node);
   return node;
 }
