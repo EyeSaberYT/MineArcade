@@ -1,0 +1,90 @@
+# Builds signed release bundles for every platform and publishes them as a
+# GitHub Release. The Tauri CLI generates `latest.json` (the manifest the
+# in-app updater polls) and signs every bundle with TAURI_SIGNING_PRIVATE_KEY.
+#
+# Releasing: bump the version in package.json, src-tauri/Cargo.toml and
+# src-tauri/tauri.conf.json, then push a tag:
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# Required repository secrets:
+#   TAURI_SIGNING_PRIVATE_KEY          contents of %USERPROFILE%\.tauri\minearcade.key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD key password (empty if none)
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            name: Windows
+          - platform: ubuntu-latest
+            name: Linux
+          - platform: macos-latest
+            name: macOS
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget \
+            file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev rpm
+          sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2
+
+      - name: Install the Tauri CLI
+        run: npm ci
+
+      - name: Build and publish
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: ${{ matrix.platform == 'ubuntu-latest' && '--bundles deb,rpm,appimage' || '' }}
+          # Point the Windows updater entry at the NSIS installer (per-user, no
+          # elevation), which is what the passive install mode expects.
+          updaterJsonPreferNsis: true
+          uploadUpdaterSignatures: false
+          tagName: ${{ github.ref_name }}
+          releaseName: MineArcade ${{ github.ref_name }}
+          releaseBody: |
+            **Install**
+            - **Windows:** `MineArcade_*_x64-setup.exe` (or the `.msi`).
+            - **Linux:** `MineArcade_*_amd64.AppImage` (`chmod +x` and run), or the `.deb` / `.rpm`.
+            - **macOS:** the `.dmg`.
+
+            Already installed? MineArcade updates itself — accept the prompt or use Settings → Updates.
+          releaseDraft: false
+          prerelease: false

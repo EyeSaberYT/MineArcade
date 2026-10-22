@@ -1,1 +1,406 @@
-﻿/* settings styles */
+﻿/* ==========================================================================
+   Settings page, skin dialog and the import dialogs
+   ========================================================================== */
+
+/* ---------- Settings layout ---------- */
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-nav-item b {
+  display: block;
+  font-size: 13.5px;
+}
+
+.settings-nav-item small {
+  display: block;
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.settings-nav-item:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.settings-nav-item.active {
+  background: linear-gradient(90deg, var(--primary-soft), rgba(45, 226, 230, 0.06));
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.settings-section-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.settings-section-head h2 {
+  font-size: 16px;
+}
+
+.settings-section-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  flex: none;
+}
+
+.settings-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-rows > .settings-row:first-child { padding-top: 0; }
+.settings-rows > .settings-row:last-child { padding-bottom: 0; border-bottom: 0; }
+
+.settings-row b,
+.settings-row .hint,
+.settings-row .form-error {
+  display: block;
+}
+
+.settings-row b {
+  font-size: 13.5px;
+  margin-bottom: 2px;
+}
+
+.settings-num {
+  width: 96px;
+  flex: none;
+}
+
+.input.is-invalid {
+  border-color: var(--red);
+}
+
+.input.is-invalid:focus {
+  box-shadow: 0 0 0 3px rgba(255, 77, 109, 0.18);
+}
+
+.settings-java-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.55fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.settings-version {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.settings-version small {
+  display: block;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.settings-version strong {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.settings-notes {
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Theme choices ---------- */
+
+.settings-themes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-theme {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.settings-theme:hover {
+  border-color: var(--cyan);
+}
+
+.settings-theme.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.settings-theme-swatch {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 5px;
+  height: 70px;
+  padding: 7px;
+  border-radius: 9px;
+}
+
+.settings-theme-swatch i { border-radius: 5px; }
+.settings-theme-swatch i:first-child { grid-row: span 2; }
+
+.settings-theme-swatch.is-dark { background: #0b0918; }
+.settings-theme-swatch.is-dark i { background: #201a42; }
+.settings-theme-swatch.is-dark i:last-child { background: linear-gradient(135deg, #ff3df2, #9b4dff); }
+
+.settings-theme-swatch.is-light { background: #ebe8f7; }
+.settings-theme-swatch.is-light i { background: #ffffff; }
+.settings-theme-swatch.is-light i:last-child { background: linear-gradient(135deg, #d61fca, #7a32e0); }
+
+.settings-theme-swatch.is-system { background: linear-gradient(135deg, #0b0918 50%, #ebe8f7 50%); }
+.settings-theme-swatch.is-system i { background: rgba(127, 120, 180, 0.45); }
+.settings-theme-swatch.is-system i:last-child { background: linear-gradient(135deg, #ff3df2, #7a32e0); }
+
+/* ---------- Save bar ---------- */
+
+.settings-savebar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--panel-2);
+  box-shadow: var(--shadow);
+  animation: pop 0.15s ease-out;
+}
+
+@media (max-width: 900px) {
+  .settings-layout,
+  .settings-java-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .settings-nav-item small {
+    display: none;
+  }
+}
+
+/* ---------- Skin dialog ---------- */
+
+.skin-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 24px;
+}
+
+.skin-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 260px;
+  height: 360px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: radial-gradient(circle at 50% 35%, var(--panel-3), var(--bg-2));
+}
+
+.skin-canvas {
+  width: 258px;
+  height: 358px;
+}
+
+.skin-stage-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.skin-head-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  text-align: center;
+}
+
+.skin-head {
+  width: 128px;
+  height: 128px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background-color: var(--panel-2);
+  image-rendering: pixelated;
+}
+
+@media (max-width: 640px) {
+  .skin-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Import from another launcher ---------- */
+
+.import-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.import-row {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  transition: opacity 0.15s;
+}
+
+.import-row.is-unchecked {
+  opacity: 0.55;
+}
+
+.import-meta {
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.import-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.import-edit .field {
+  gap: 4px;
+}
+
+.import-edit select.input {
+  width: 150px;
+  padding: 7px 10px;
+}
+
+.import-edit-name .input {
+  width: 200px;
+  padding: 7px 10px;
+}
+
+.import-no-build {
+  display: flex;
+  align-items: center;
+  width: 150px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------- Import modpack ---------- */
+
+.pack-chooser {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  padding: 44px 20px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.pack-chooser:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--text);
+}
+
+.pack-chooser:disabled {
+  cursor: default;
+}
+
+.pack-file {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+}
+
+.pack-file-icon {
+  color: var(--violet);
+}
