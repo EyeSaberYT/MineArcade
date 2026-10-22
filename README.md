@@ -1,4 +1,4 @@
-# MineArcade Launcher
+﻿# MineArcade Launcher
 
 The official launcher for the **MineArcade** network (`play.minearcade.org`): a fast, ad-free
 Minecraft: Java Edition launcher built with [Tauri 2](https://tauri.app). It has a Rust core and a
@@ -14,7 +14,7 @@ plain HTML/CSS/JavaScript interface, with no frontend build step.
 - **Fabric, Quilt, Forge and NeoForge**, installed automatically.
 - **Automatic Java**: the exact Mojang runtime each version needs is downloaded for you.
 - Live game console, a crash/log viewer, and a Stop button for running games.
-- Log4Shell protection for 1.7–1.18 (Mojang's patched logging config).
+- Log4Shell protection for 1.7â€“1.18 (Mojang's patched logging config).
 
 **Instances**
 - Create, rename, duplicate and delete instances, with custom icons and notes.
@@ -51,7 +51,7 @@ src/                     Frontend, served as-is by Tauri
     dialogs/             new instance, install, scan, skin, imports, icon picker
   vendor/                skinview3d, marked, DOMPurify (npm run vendor)
 src-tauri/               Rust backend
-  src/core/              Launcher logic (auth, minecraft, java, download, instances, modpacks, servers, …)
+  src/core/              Launcher logic (auth, minecraft, java, download, instances, modpacks, servers, â€¦)
   src/api/               Modrinth and CurseForge clients
   src/commands/          Tauri command surface
 scripts/                 Icon generation, vendoring, JS checks
@@ -62,9 +62,9 @@ Launcher data lives in `%APPDATA%\.minearcade` (override with `MINEARCADE_DATA_D
 ## Requirements (Windows)
 
 1. **Microsoft C++ Build Tools** with the "Desktop development with C++" workload.
-2. **Rust (MSVC toolchain)** via rustup (`rustup default stable-msvc`). If a Chocolatey GNU Rust is
-   also installed, put `%USERPROFILE%\.cargo\bin` before `C:\ProgramData\chocolatey\bin` in your
-   `PATH` (or `choco uninstall rust`); the GNU toolchain cannot build this project.
+2. **Rust (MSVC toolchain)** via rustup (`rustup default stable-msvc`). `npm run dev` / `npm run build`
+   put rustup's `cargo` first, so a Chocolatey GNU Rust on `PATH` doesn't get in the way. Running
+   `cargo` yourself still needs `%USERPROFILE%\.cargo\bin` ahead of it (or `choco uninstall rust`).
 3. **Node.js** for the Tauri CLI.
 4. **WebView2**, which is preinstalled on Windows 10/11.
 

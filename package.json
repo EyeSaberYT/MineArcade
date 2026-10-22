@@ -4,9 +4,9 @@
   "version": "0.2.0",
   "description": "MineArcade Minecraft launcher (Tauri: Rust + JavaScript)",
   "scripts": {
-    "dev": "tauri dev",
-    "build": "tauri build",
-    "tauri": "tauri",
+    "dev": "node scripts/run-tauri.mjs dev",
+    "build": "node scripts/run-tauri.mjs build",
+    "tauri": "node scripts/run-tauri.mjs",
     "icons": "node scripts/gen-icons.mjs",
     "vendor": "node scripts/vendor.mjs",
     "check": "node scripts/check-js.mjs"
