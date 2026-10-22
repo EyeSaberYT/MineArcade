@@ -77,7 +77,9 @@ pub struct VersionJson {
     /// Pre-1.13 style argument string.
     #[serde(default)]
     pub minecraft_arguments: Option<String>,
-    #[serde(default)]
+    /// The vanilla version a loader profile builds on. Mojang and Forge call it
+    /// `inheritsFrom`; earlier builds of this launcher saved `inheritedFrom`.
+    #[serde(default, rename = "inheritsFrom", alias = "inheritedFrom")]
     pub inherited_from: Option<String>,
     #[serde(rename = "type", default)]
     pub version_type: Option<String>,
