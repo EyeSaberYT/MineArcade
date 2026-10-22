@@ -1,4 +1,4 @@
-﻿# MineArcade Launcher
+# MineArcade Launcher
 
 The official launcher for the **MineArcade** network (`play.minearcade.org`): a fast, ad-free
 Minecraft: Java Edition launcher built with [Tauri 2](https://tauri.app). It has a Rust core and a
