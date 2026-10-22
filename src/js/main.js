@@ -45,6 +45,12 @@ function mountSidebar() {
   onNavigate(highlight);
   highlight(currentRoute().path);
 
+  // Settings is an overlay (as in Aether), not a page.
+  nav.querySelector('[data-open-settings]').addEventListener('click', async (event) => {
+    event.preventDefault();
+    (await import('./pages/settings.js')).openSettings();
+  });
+
   const badge = $('#running-badge');
   const renderBadge = () => {
     const count = store.state.running.size;

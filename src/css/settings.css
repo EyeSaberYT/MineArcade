@@ -1,22 +1,47 @@
 ﻿/* ==========================================================================
-   Settings page, skin dialog and the import dialogs
+   Settings page (Aether layout), skin dialog and the import dialogs
    ========================================================================== */
 
-/* ---------- Settings layout ---------- */
+/* ---------- Frame ---------- */
+
+.settings-popup {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.settings-loading {
+  padding: 40px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.settings-popup-header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-popup-header h1 {
+  margin: 4px 0;
+  font-size: 21px;
+}
 
 .settings-layout {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-height: 420px;
 }
 
 .settings-nav {
-  position: sticky;
-  top: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--line);
+  background: var(--bg-2);
 }
 
 .settings-nav-item {
@@ -32,21 +57,9 @@
   cursor: pointer;
 }
 
-.settings-nav-item b {
-  display: block;
-  font-size: 13.5px;
-}
-
-.settings-nav-item small {
-  display: block;
-  color: var(--faint);
-  font-size: 11.5px;
-}
-
-.settings-nav-item:hover {
-  background: var(--panel);
-  color: var(--text);
-}
+.settings-nav-item b { display: block; font-size: 13.5px; }
+.settings-nav-item small { display: block; color: var(--faint); font-size: 11.5px; }
+.settings-nav-item:hover { background: var(--panel); color: var(--text); }
 
 .settings-nav-item.active {
   background: linear-gradient(90deg, var(--primary-soft), rgba(45, 226, 230, 0.06));
@@ -54,16 +67,60 @@
   box-shadow: inset 3px 0 0 var(--primary);
 }
 
+.settings-pane {
+  padding: 22px 24px;
+  min-width: 0;
+}
+
+.settings-popup-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+/* ---------- Overlay dialog ---------- */
+
+.modal.settings-dialog {
+  width: min(1040px, 100%);
+  overflow: hidden;
+}
+
+.settings-dialog > .modal-body {
+  padding: 0;
+  gap: 0;
+}
+
+.settings-dialog .settings-popup {
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.settings-dialog .settings-popup-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.settings-dialog .settings-popup-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+/* ---------- Sections & rows ---------- */
+
 .settings-section-head {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
-.settings-section-head h2 {
-  font-size: 16px;
-}
+.settings-section-head h2 { font-size: 16px; }
 
 .settings-section-icon {
   display: grid;
@@ -76,93 +133,70 @@
   flex: none;
 }
 
-.settings-rows {
-  display: flex;
-  flex-direction: column;
-}
+.settings-rows { display: flex; flex-direction: column; }
 
 .settings-row {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 12px 0;
+  padding: 13px 0;
   border-bottom: 1px solid var(--line);
 }
 
 .settings-rows > .settings-row:first-child { padding-top: 0; }
 .settings-rows > .settings-row:last-child { padding-bottom: 0; border-bottom: 0; }
 
-.settings-row b,
-.settings-row .hint,
-.settings-row .form-error {
-  display: block;
-}
+.settings-row b { display: block; font-size: 13.5px; }
+.settings-row small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
 
-.settings-row b {
-  font-size: 13.5px;
-  margin-bottom: 2px;
-}
+.settings-num { width: 96px; flex: none; }
+.settings-server { width: 230px; flex: none; }
 
-.settings-num {
-  width: 96px;
-  flex: none;
-}
-
-.input.is-invalid {
-  border-color: var(--red);
-}
-
-.input.is-invalid:focus {
-  box-shadow: 0 0 0 3px rgba(255, 77, 109, 0.18);
-}
+/* ---------- Java ---------- */
 
 .settings-java-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.55fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr);
+  gap: 22px;
   align-items: start;
 }
 
-.settings-version {
-  padding: 12px 14px;
+.settings-empty {
+  padding: 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.runtime-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+
+.runtime-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: 12px;
   background: var(--panel-2);
 }
 
-.settings-version small {
-  display: block;
-  color: var(--muted);
-  font-size: 11.5px;
-}
-
-.settings-version strong {
-  font-size: 15px;
-  overflow-wrap: anywhere;
-}
-
-.settings-notes {
-  max-height: 220px;
-  overflow: auto;
-  padding: 10px 12px;
+.runtime-install-card {
+  padding: 18px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--bg-2);
-  font-size: 12.5px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  border-radius: 14px;
+  background: var(--panel-2);
 }
 
-/* ---------- Theme choices ---------- */
+/* ---------- Appearance ---------- */
 
-.settings-themes {
+.theme-choices {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
-.settings-theme {
+.theme-choice {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -175,72 +209,64 @@
   cursor: pointer;
 }
 
-.settings-theme:hover {
-  border-color: var(--cyan);
-}
+.theme-choice:hover { border-color: var(--cyan); }
+.theme-choice.active { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
 
-.settings-theme.active {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-soft);
-}
+.theme-swatch { height: 64px; border-radius: 9px; }
+.theme-swatch.is-dark { background: linear-gradient(135deg, #0b0918 60%, #201a42); }
+.theme-swatch.is-light { background: linear-gradient(135deg, #ffffff 60%, #ebe8f7); border: 1px solid var(--line); }
+.theme-swatch.is-system { background: linear-gradient(135deg, #0b0918 50%, #ebe8f7 50%); }
 
-.settings-theme-swatch {
+.accent-choices {
   display: grid;
-  grid-template-columns: 1fr 2fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 5px;
-  height: 70px;
-  padding: 7px;
-  border-radius: 9px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
 }
 
-.settings-theme-swatch i { border-radius: 5px; }
-.settings-theme-swatch i:first-child { grid-row: span 2; }
-
-.settings-theme-swatch.is-dark { background: #0b0918; }
-.settings-theme-swatch.is-dark i { background: #201a42; }
-.settings-theme-swatch.is-dark i:last-child { background: linear-gradient(135deg, #ff3df2, #9b4dff); }
-
-.settings-theme-swatch.is-light { background: #ebe8f7; }
-.settings-theme-swatch.is-light i { background: #ffffff; }
-.settings-theme-swatch.is-light i:last-child { background: linear-gradient(135deg, #d61fca, #7a32e0); }
-
-.settings-theme-swatch.is-system { background: linear-gradient(135deg, #0b0918 50%, #ebe8f7 50%); }
-.settings-theme-swatch.is-system i { background: rgba(127, 120, 180, 0.45); }
-.settings-theme-swatch.is-system i:last-child { background: linear-gradient(135deg, #ff3df2, #7a32e0); }
-
-/* ---------- Save bar ---------- */
-
-.settings-savebar {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
+.accent-choice,
+.accent-custom {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--line-strong);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel-2);
-  box-shadow: var(--shadow);
-  animation: pop 0.15s ease-out;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
+.accent-custom { margin-top: 8px; position: relative; }
+.accent-choice:hover, .accent-custom:hover { border-color: var(--cyan); }
+.accent-choice.active, .accent-custom.active { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+
+.accent-dot { width: 16px; height: 16px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2); }
+
+.accent-custom input[type='color'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* ---------- About ---------- */
+
+.about-tile {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+.about-tile small { display: block; color: var(--muted); font-size: 11.5px; }
+.about-tile strong { font-size: 15px; overflow-wrap: anywhere; }
+
 @media (max-width: 900px) {
-  .settings-layout,
-  .settings-java-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-nav {
-    position: static;
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-
-  .settings-nav-item small {
-    display: none;
-  }
+  .settings-layout, .settings-java-grid { grid-template-columns: 1fr; }
+  .settings-nav { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
+  .settings-nav-item small { display: none; }
 }
 
 /* ---------- Skin dialog ---------- */

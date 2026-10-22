@@ -60,6 +60,53 @@ export function applyTheme(theme) {
 
 lightQuery.addEventListener('change', () => applyTheme(store.state.settings?.theme ?? 'dark'));
 
+// ---------- Accent colour ----------
+// Like the theme in Aether, the accent is a per-device preference kept in localStorage.
+
+export const ACCENTS = [
+  { id: 'pink', label: 'MineArcade pink', color: '#ff3df2' },
+  { id: 'red', label: 'Red', color: '#ef5350' },
+  { id: 'purple', label: 'Purple', color: '#a78bfa' },
+  { id: 'blue', label: 'Blue', color: '#50aaff' },
+];
+
+/** { id, custom } — the chosen accent and the last custom colour. */
+export function currentAccent() {
+  let id = 'pink';
+  let custom = '#ff3df2';
+  try {
+    id = localStorage.getItem('minearcade.accent') ?? id;
+    custom = localStorage.getItem('minearcade.customAccent') ?? custom;
+  } catch {
+    // Storage unavailable: defaults.
+  }
+  if (id !== 'custom' && !ACCENTS.some((a) => a.id === id)) id = 'pink';
+  return { id, custom };
+}
+
+/** Apply (and remember) an accent. `custom` is the colour for the 'custom' accent. */
+export function applyAccent(id, custom) {
+  try {
+    localStorage.setItem('minearcade.accent', id);
+    if (custom) localStorage.setItem('minearcade.customAccent', custom);
+  } catch {
+    // Keep it for this session only.
+  }
+  const color = id === 'custom' ? (custom ?? currentAccent().custom) : ACCENTS.find((a) => a.id === id)?.color;
+  const style = document.documentElement.style;
+  if (!color || id === 'pink') {
+    ['--primary', '--primary-2', '--primary-soft'].forEach((name) => style.removeProperty(name));
+    return;
+  }
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16));
+  const darker = (c) => Math.round(c * 0.62);
+  style.setProperty('--primary', color);
+  style.setProperty('--primary-2', `rgb(${darker(r)}, ${darker(g)}, ${darker(b)})`);
+  style.setProperty('--primary-soft', `rgba(${r}, ${g}, ${b}, 0.14)`);
+}
+
+applyAccent(currentAccent().id);
+
 // ---------- Launching ----------
 
 /** The featured server (play.minearcade.org unless changed in Settings). */
@@ -89,7 +136,11 @@ export async function launchInstance(id, quickPlay) {
       description: `Process ${process.pid}`,
     });
     store.update('running', (set) => void set.add(id));
-    if (store.state.settings?.closeOnLaunch) {
+    const settings = store.state.settings;
+    if (settings?.closeOnLaunch) {
+      // The game is its own process and keeps running after the launcher quits.
+      setTimeout(() => window.__TAURI__?.process?.exit?.(0), 1500);
+    } else if (settings && !settings.keepLauncherOpen) {
       window.__TAURI__?.window?.getCurrentWindow?.().minimize?.();
     }
   } catch (error) {
