@@ -102,6 +102,7 @@ pub fn run() {
             commands::launch::launch_logs,
             commands::launch::launch_mark_stopped,
             commands::launch::launch_running,
+            commands::launch::launch_stop,
             // ---- modrinth --------------------------------------------------
             commands::modrinth::modrinth_search,
             commands::modrinth::modrinth_project,

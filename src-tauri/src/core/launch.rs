@@ -30,6 +30,8 @@ pub struct LaunchRequest<'a> {
     pub events: GameEventSink,
     /// Skip launching and just return the command (used by "preview command").
     pub dry_run: bool,
+    /// Firing this (or dropping its sender) is ignored; sending `()` kills the game.
+    pub stop: Option<tokio::sync::oneshot::Receiver<()>>,
 }
 
 /// A successfully started game process.
@@ -93,6 +95,7 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
         sink,
         events,
         dry_run,
+        stop,
     } = request;
 
     if account.is_expired() {
@@ -267,7 +270,17 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
     let watched = instance.id.clone();
     let paths_clone = paths.clone();
     tokio::spawn(async move {
-        let status = child.wait().await;
+        let status = match stop {
+            Some(mut stop) => tokio::select! {
+                status = child.wait() => status,
+                Ok(()) = &mut stop => {
+                    log::info!("stopping instance {watched} on request");
+                    let _ = child.kill().await;
+                    child.wait().await
+                }
+            },
+            None => child.wait().await,
+        };
         match &status {
             Ok(status) => log::info!("instance {watched} exited with {status}"),
             Err(error) => log::warn!("failed to wait for instance {watched}: {error}"),

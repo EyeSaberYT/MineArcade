@@ -1,0 +1,186 @@
+/* Home page, sign-in dialog and other small shared bits. */
+
+/* ---------- MineArcade server hero ---------- */
+
+.arcade-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 30px 34px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(255, 61, 242, 0.38), transparent 45%),
+    radial-gradient(circle at 12% 95%, rgba(45, 226, 230, 0.28), transparent 50%),
+    linear-gradient(135deg, #1d1550, #0d0b22);
+  color: #ecebff;
+}
+
+.arcade-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 26px 26px;
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent 90%);
+  mask-image: linear-gradient(to bottom, black, transparent 90%);
+  pointer-events: none;
+}
+
+.arcade-hero-body {
+  position: relative;
+  max-width: 640px;
+}
+
+.arcade-hero h2 {
+  margin-top: 8px;
+  font-size: 34px;
+  letter-spacing: -0.01em;
+}
+
+.arcade-hero h2 span {
+  background: linear-gradient(90deg, var(--primary), var(--yellow));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.arcade-hero-addr {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 5px 11px;
+  border: 1px solid rgba(45, 226, 230, 0.35);
+  border-radius: 999px;
+  background: rgba(45, 226, 230, 0.08);
+  color: #2de2e6;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.arcade-hero .muted {
+  color: #b9b5e6;
+}
+
+.arcade-hero-pixels i {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border-radius: 3px;
+  opacity: 0.85;
+  animation: float 6s ease-in-out infinite;
+}
+
+.arcade-hero-pixels i:nth-child(1) { right: 12%; top: 22%; background: #ff3df2; }
+.arcade-hero-pixels i:nth-child(2) { right: 7%; top: 55%; width: 18px; height: 18px; background: #2de2e6; animation-delay: -1s; }
+.arcade-hero-pixels i:nth-child(3) { right: 21%; top: 66%; width: 14px; height: 14px; background: #ffd23f; animation-delay: -2s; }
+.arcade-hero-pixels i:nth-child(4) { right: 27%; top: 16%; width: 12px; height: 12px; background: #2de2e6; animation-delay: -3s; }
+.arcade-hero-pixels i:nth-child(5) { right: 4%; top: 14%; width: 16px; height: 16px; background: #ffd23f; animation-delay: -4s; }
+.arcade-hero-pixels i:nth-child(6) { right: 16%; top: 42%; width: 10px; height: 10px; background: #3dff8b; animation-delay: -1.5s; }
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(-10px) rotate(8deg); }
+}
+
+/* ---------- Getting-started guide ---------- */
+
+.guide {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.guide-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.guide-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--panel-2);
+}
+
+.guide-step b {
+  display: block;
+  font-size: 13px;
+}
+
+.guide-step small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guide-num {
+  color: var(--primary);
+  font-family: var(--mono);
+  font-weight: 800;
+}
+
+/* ---------- Continue playing ---------- */
+
+.home-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 14px;
+}
+
+.spotlight {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 26px;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 100% 0%, var(--primary-soft), transparent 55%),
+    var(--panel);
+}
+
+.spotlight-foot {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.home-stats {
+  display: grid;
+  grid-template-rows: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 1100px) {
+  .home-split { grid-template-columns: 1fr; }
+  .home-stats { grid-template-columns: repeat(3, 1fr); grid-template-rows: none; }
+  .guide-steps { grid-template-columns: 1fr; }
+}
+
+/* ---------- Sign-in dialog ---------- */
+
+.device-code {
+  padding: 16px;
+  border: 2px dashed rgba(255, 210, 63, 0.5);
+  border-radius: 14px;
+  background: var(--bg-2);
+  color: var(--yellow);
+  font-family: var(--mono);
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-align: center;
+}

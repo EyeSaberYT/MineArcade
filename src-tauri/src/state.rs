@@ -22,6 +22,8 @@ pub struct AppState {
     pub accounts: RwLock<AccountStore>,
     /// Instances that currently have a game process running.
     pub running: RwLock<Vec<String>>,
+    /// Per running instance, the channel that kills its game process.
+    pub stoppers: tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<()>>>,
 }
 
 impl AppState {
@@ -49,6 +51,7 @@ impl AppState {
             instances: RwLock::new(instances),
             accounts: RwLock::new(accounts),
             running: RwLock::new(vec![]),
+            stoppers: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         })
     }
 

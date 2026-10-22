@@ -36,6 +36,7 @@ pub async fn launch_instance(
     let account = active_account(&state).await?;
     let settings = state.settings.read().await.clone();
 
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     let result = launch::launch(LaunchRequest {
         http: &state.http,
         paths: &state.paths,
@@ -45,8 +46,10 @@ pub async fn launch_instance(
         sink: state.sink(&app),
         events: state.game_sink(&app),
         dry_run: false,
+        stop: Some(stop_rx),
     })
     .await?;
+    state.stoppers.lock().await.insert(id.clone(), stop_tx);
 
     // Track it as running until the process exits.
     state.running.write().await.push(id.clone());
@@ -77,6 +80,7 @@ pub async fn launch_preview(state: State<'_, AppState>, id: String) -> Result<St
         sink: crate::core::download::silent(),
         events: launch::silent_events(),
         dry_run: true,
+        stop: None,
     })
     .await?;
 
@@ -123,7 +127,20 @@ pub async fn launch_logs(
 #[tauri::command]
 pub async fn launch_mark_stopped(state: State<'_, AppState>, id: String) -> Result<()> {
     state.running.write().await.retain(|entry| entry != &id);
+    state.stoppers.lock().await.remove(&id);
     Ok(())
+}
+
+/// Force-close a running game. `game://exit` follows once the process is gone.
+#[tauri::command]
+pub async fn launch_stop(state: State<'_, AppState>, id: String) -> Result<()> {
+    match state.stoppers.lock().await.remove(&id) {
+        Some(stop) => {
+            let _ = stop.send(());
+            Ok(())
+        }
+        None => Err(LauncherError::msg("That instance isn't running.")),
+    }
 }
 
 /// Which instances currently have a game process.
