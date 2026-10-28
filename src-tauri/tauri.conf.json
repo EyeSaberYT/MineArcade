@@ -49,7 +49,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEwREE3MTdCMEVGRDc5RUQKUldUdGVmME9lM0hhb0lYelhyckRNZlN4NGpsbkJMMEVzN0Z4bnYzS2c0TkdXaC9zNWxOMjQzV3gK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU4MzBDMTQ3RDBFQUM4OTQKUldTVXlPclFSOEV3V0pVc1kyaXhySzNKbURzM25GenpaYjl0S2E2OWRTQWpPb2J5NDE1bVlBZXQK",
       "requireSignedVersion": true,
       "endpoints": ["https://github.com/EyeSaberYT/MineArcade/releases/latest/download/latest.json"],
       "windows": {
