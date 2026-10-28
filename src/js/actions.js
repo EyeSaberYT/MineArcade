@@ -63,46 +63,59 @@ lightQuery.addEventListener('change', () => applyTheme(store.state.settings?.the
 // ---------- Accent colour ----------
 // Like the theme in Aether, the accent is a per-device preference kept in localStorage.
 
+// The first accent is the stylesheet's own (Modrinth green), so choosing it
+// clears the overrides and the light theme's darker green applies again.
 export const ACCENTS = [
+  { id: 'green', label: 'Modrinth green', color: '#1bd96a' },
   { id: 'pink', label: 'MineArcade pink', color: '#ff3df2' },
   { id: 'red', label: 'Red', color: '#ef5350' },
   { id: 'purple', label: 'Purple', color: '#a78bfa' },
   { id: 'blue', label: 'Blue', color: '#50aaff' },
 ];
 
+const DEFAULT_ACCENT = ACCENTS[0].id;
+// A new key: the old one defaulted to pink, and the look now starts green.
+const ACCENT_KEY = 'minearcade.accentChoice';
+const ACCENT_PROPERTIES = ['--primary', '--primary-2', '--primary-soft', '--primary-line', '--primary-glow', '--on-primary'];
+
 /** { id, custom } — the chosen accent and the last custom colour. */
 export function currentAccent() {
-  let id = 'pink';
-  let custom = '#ff3df2';
+  let id = DEFAULT_ACCENT;
+  let custom = '#1bd96a';
   try {
-    id = localStorage.getItem('minearcade.accent') ?? id;
+    id = localStorage.getItem(ACCENT_KEY) ?? id;
     custom = localStorage.getItem('minearcade.customAccent') ?? custom;
   } catch {
     // Storage unavailable: defaults.
   }
-  if (id !== 'custom' && !ACCENTS.some((a) => a.id === id)) id = 'pink';
+  if (id !== 'custom' && !ACCENTS.some((a) => a.id === id)) id = DEFAULT_ACCENT;
   return { id, custom };
 }
 
 /** Apply (and remember) an accent. `custom` is the colour for the 'custom' accent. */
 export function applyAccent(id, custom) {
   try {
-    localStorage.setItem('minearcade.accent', id);
+    localStorage.setItem(ACCENT_KEY, id);
     if (custom) localStorage.setItem('minearcade.customAccent', custom);
   } catch {
     // Keep it for this session only.
   }
   const color = id === 'custom' ? (custom ?? currentAccent().custom) : ACCENTS.find((a) => a.id === id)?.color;
   const style = document.documentElement.style;
-  if (!color || id === 'pink') {
-    ['--primary', '--primary-2', '--primary-soft'].forEach((name) => style.removeProperty(name));
+  if (!color || id === DEFAULT_ACCENT) {
+    ACCENT_PROPERTIES.forEach((name) => style.removeProperty(name));
     return;
   }
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16));
   const darker = (c) => Math.round(c * 0.62);
+  // Black text on light accents (as Modrinth does on its green), white on dark ones.
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   style.setProperty('--primary', color);
   style.setProperty('--primary-2', `rgb(${darker(r)}, ${darker(g)}, ${darker(b)})`);
-  style.setProperty('--primary-soft', `rgba(${r}, ${g}, ${b}, 0.14)`);
+  style.setProperty('--primary-soft', `rgba(${r}, ${g}, ${b}, 0.16)`);
+  style.setProperty('--primary-line', `rgba(${r}, ${g}, ${b}, 0.45)`);
+  style.setProperty('--primary-glow', `rgba(${r}, ${g}, ${b}, 0.25)`);
+  style.setProperty('--on-primary', luminance > 0.55 ? '#000000' : '#ffffff');
 }
 
 applyAccent(currentAccent().id);

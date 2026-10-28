@@ -71,7 +71,7 @@ export function render(root, params) {
     if (isLaunching(id)) {
       return html`<button class="btn btn-play" disabled>${spinner()} Starting…</button>`;
     }
-    return html`<button class="btn btn-play" data-act="play">${icon('play')} PLAY</button>`;
+    return html`<button class="btn btn-play" data-act="play">${icon('play')} Play</button>`;
   }
 
   function drawHead() {
@@ -91,8 +91,7 @@ export function render(root, params) {
         <div class="inst-hero">
           ${instanceIcon(instance, 76)}
           <div class="grow">
-            <div class="eyebrow">Minecraft instance</div>
-            <div class="row" style="gap:10px;margin-top:4px">
+            <div class="row" style="gap:10px">
               <h1 class="truncate">${instance.name}</h1>
               ${running && html`<span class="badge badge-live">Running</span>`}
             </div>
@@ -280,7 +279,6 @@ export function render(root, params) {
     setHtml(
       root,
       html`
-        <a class="back-link" href="#/library">${icon('arrow-left', 'icon-sm')} Library</a>
         <div class="skeleton" style="height:118px"></div>
         <div class="skeleton" style="height:40px"></div>
         <div class="skeleton" style="height:300px"></div>`,
@@ -308,7 +306,6 @@ export function render(root, params) {
     setHtml(
       root,
       html`
-        <a class="back-link" href="#/library">${icon('arrow-left', 'icon-sm')} Library</a>
         <section class="card inst-head" data-head></section>
         <nav class="tabs" data-tabs></nav>
         <div data-pane></div>`,

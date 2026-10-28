@@ -12,39 +12,49 @@
     <script type="module" src="js/main.js"></script>
   </head>
   <body>
+    <!-- Laid out like the Modrinth App: a top bar and an icon rail frame the page panel. -->
     <div class="app">
-      <aside class="sidebar">
-        <a class="brand" href="#/" style="text-decoration:none;color:inherit">
+      <header class="topbar">
+        <a class="topbar-brand" href="#/" aria-label="MineArcade home">
           <img class="brand-logo" src="assets/logo.png" alt="" />
-          <div>
-            <div class="brand-name">MINE<span>ARCADE</span></div>
-            <div class="brand-sub">Minecraft launcher</div>
-          </div>
+          <span class="brand-name">MineArcade</span>
         </a>
+        <div class="topbar-arrows">
+          <button class="topbar-arrow" id="nav-back" data-tip="Go back" aria-label="Go back">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <button class="topbar-arrow" id="nav-forward" data-tip="Go forward" aria-label="Go forward">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg>
+          </button>
+        </div>
+        <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+        <div class="topbar-actions" id="topbar-actions"></div>
+      </header>
 
-        <nav class="nav" id="nav">
-          <a class="nav-item" data-section="home" href="#/">
+      <aside class="rail">
+        <nav class="rail-nav" id="nav" aria-label="Main">
+          <a class="rail-btn" data-section="home" href="#/" data-tip="Home" aria-label="Home">
             <svg class="icon" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>
-            Home
           </a>
-          <a class="nav-item" data-section="library" href="#/library">
+          <a class="rail-btn" data-section="library" href="#/library" data-tip="Library" aria-label="Library">
             <svg class="icon" viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" /><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65" /><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" /></svg>
-            Library
-            <span class="nav-badge" id="running-badge" title="Games running" hidden>0</span>
           </a>
-          <a class="nav-item" data-section="discover" href="#/discover">
+          <a class="rail-btn" data-section="discover" href="#/discover" data-tip="Discover content" aria-label="Discover content">
             <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" /></svg>
-            Discover
-          </a>
-          <a class="nav-item" data-section="settings" href="#" data-open-settings>
-            <svg class="icon" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
-            Settings
           </a>
         </nav>
 
-        <div class="sidebar-server" id="sidebar-server" hidden></div>
+        <div class="rail-recent" id="rail-recent" aria-label="Recent instances"></div>
 
-        <div class="account" id="account-box"></div>
+        <div class="rail-foot">
+          <button class="rail-btn" data-new-instance data-tip="Create new instance" aria-label="Create new instance">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14" /><path d="M12 5v14" /></svg>
+          </button>
+          <button class="rail-btn" data-open-settings data-tip="Settings" aria-label="Settings">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
+          </button>
+          <div id="account-box"></div>
+        </div>
       </aside>
 
       <main class="main">

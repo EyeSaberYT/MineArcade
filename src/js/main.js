@@ -1,7 +1,8 @@
-// App bootstrap: sidebar, backend events, progress footer, routes.
+// App bootstrap: the rail and top bar, backend events, progress footer, routes.
 import * as api from './api.js';
 import {
   featuredServer,
+  launchInstance,
   loadSettings,
   quickJoin,
   refreshAccounts,
@@ -12,10 +13,11 @@ import {
 } from './actions.js';
 import { mountAccountMenu } from './components/account-menu.js';
 import { initDrop } from './drop.js';
-import { currentRoute, onNavigate, route, startRouter } from './router.js';
+import { revealInstanceFolder } from './pages/instance/shared.js';
+import { currentCrumb, currentRoute, navigate, onCrumb, onNavigate, route, startRouter } from './router.js';
 import { appendConsole, store } from './store.js';
 import { errorText, listen } from './tauri.js';
-import { $, $$, html, icon, setHtml, spinner, toast } from './ui.js';
+import { $, $$, html, icon, initTooltips, instanceIcon, setHtml, showMenu, spinner, toast } from './ui.js';
 import { startUpdateCheck } from './updater.js';
 
 // ---------- Routes ----------
@@ -27,71 +29,201 @@ route('/discover/:type?', () => import('./pages/discover.js'));
 route('/project/:source/:id', () => import('./pages/project.js'));
 route('/settings/:section?', () => import('./pages/settings.js'));
 
-// ---------- Sidebar ----------
+// ---------- Shell: rail and top bar ----------
 
-function mountSidebar() {
-  const nav = $('#nav');
-  const sectionOf = (path) => {
-    if (path === '/' || path === '') return 'home';
-    if (path.startsWith('/library') || path.startsWith('/instance')) return 'library';
-    if (path.startsWith('/discover') || path.startsWith('/project')) return 'discover';
-    if (path.startsWith('/settings')) return 'settings';
-    return '';
-  };
-  const highlight = (path) => {
-    const section = sectionOf(path);
-    $$('.nav-item', nav).forEach((item) => item.classList.toggle('active', item.dataset.section === section));
-  };
-  onNavigate(highlight);
-  highlight(currentRoute().path);
+const sectionOf = (path) => {
+  if (path === '/' || path === '') return 'home';
+  if (path.startsWith('/library') || path.startsWith('/instance')) return 'library';
+  if (path.startsWith('/discover') || path.startsWith('/project')) return 'discover';
+  return '';
+};
 
-  // Settings is an overlay (as in Aether), not a page.
-  nav.querySelector('[data-open-settings]').addEventListener('click', async (event) => {
-    event.preventDefault();
-    (await import('./pages/settings.js')).openSettings();
+const openSettings = async () => (await import('./pages/settings.js')).openSettings();
+const openNewInstance = async () => (await import('./dialogs/new-instance.js')).openNewInstanceDialog();
+
+/** Most recently played first; never-played instances last, by name. */
+function recentInstances() {
+  return [...store.state.instances].sort((a, b) => {
+    const diff = new Date(b.lastPlayed ?? 0) - new Date(a.lastPlayed ?? 0);
+    return diff || a.name.localeCompare(b.name);
   });
+}
 
-  const badge = $('#running-badge');
-  const renderBadge = () => {
-    const count = store.state.running.size;
-    badge.hidden = count === 0;
-    badge.textContent = String(count);
+function mountRail() {
+  const nav = $('#nav');
+  const recentEl = $('#rail-recent');
+  let path = currentRoute().path;
+  // As many recent instances as fit between the main buttons and the footer.
+  let fits = 0;
+
+  const highlight = () => {
+    const section = sectionOf(path);
+    $$('.rail-btn', nav).forEach((item) => item.classList.toggle('active', item.dataset.section === section));
   };
-  store.on('running', renderBadge);
-  renderBadge();
 
-  // Featured server card: one click joins with the most recent instance.
-  const serverBox = $('#sidebar-server');
-  const renderServer = () => {
-    const address = featuredServer();
-    serverBox.hidden = !address;
-    if (!address) return;
-    const instance = spotlightInstance();
-    const running = instance && store.state.running.has(instance.id);
-    const launching = instance && store.state.launching.has(instance.id);
+  const renderRecent = () => {
+    const shown = recentInstances().slice(0, fits);
+    const openId = path.startsWith('/instance/') ? decodeURIComponent(path.split('/')[2] ?? '') : null;
     setHtml(
-      serverBox,
-      html`
-        <div class="row" style="gap:7px">${icon('server', 'icon-sm')}<span class="bold small">MineArcade</span></div>
-        <div class="addr" title="${address}">${address}</div>
-        ${running
-          ? html`<button class="btn btn-danger btn-sm btn-block" data-stop>${icon('square')} Stop game</button>`
-          : html`<button class="btn btn-play btn-sm btn-block" data-join ${launching ? 'disabled' : ''}>
-              ${launching ? spinner() : icon('play')} ${launching ? 'Starting…' : 'Join server'}
-            </button>`}`,
+      recentEl,
+      shown.length
+        ? html`<div class="rail-divider"></div>
+            ${shown.map(
+              (instance) => html`<a class="rail-btn rail-instance ${instance.id === openId ? 'active' : ''}" href="#/instance/${encodeURIComponent(instance.id)}"
+                  data-recent="${instance.id}" data-tip="${instance.name}" aria-label="${instance.name}">
+                ${instanceIcon(instance, 30)}
+                ${store.state.running.has(instance.id) && html`<span class="rail-live" aria-label="Running"></span>`}
+              </a>`,
+            )}
+            <div class="rail-divider"></div>`
+        : '',
     );
   };
-  serverBox.addEventListener('click', (event) => {
-    if (event.target.closest('[data-join]')) quickJoin();
-    if (event.target.closest('[data-stop]')) {
-      const instance = spotlightInstance();
-      if (instance) stopInstance(instance.id, instance.name);
+
+  // Each slot is a 48px button plus a 4px gap; the two dividers take 34px.
+  new ResizeObserver(() => {
+    const next = Math.max(0, Math.floor((recentEl.clientHeight - 34) / 52));
+    if (next !== fits) {
+      fits = next;
+      renderRecent();
     }
+  }).observe(recentEl);
+
+  // Right-click a recent instance for quick actions, as in the Modrinth App.
+  recentEl.addEventListener('contextmenu', (event) => {
+    const node = event.target.closest('[data-recent]');
+    const instance = node && store.state.instances.find((i) => i.id === node.dataset.recent);
+    if (!instance) return;
+    event.preventDefault();
+    const running = store.state.running.has(instance.id);
+    showMenu(
+      node,
+      [
+        { header: instance.name },
+        running
+          ? { label: 'Stop', icon: 'stop-circle', danger: true, onSelect: () => stopInstance(instance.id, instance.name) }
+          : { label: 'Play', icon: 'play', disabled: store.state.launching.has(instance.id), onSelect: () => launchInstance(instance.id) },
+        { separator: true },
+        { label: 'View instance', icon: 'eye', onSelect: () => navigate(`/instance/${instance.id}`) },
+        { label: 'Open folder', icon: 'folder', onSelect: () => revealInstanceFolder(instance.id) },
+      ],
+      { placement: 'right' },
+    );
   });
-  store.on(['settings', 'instances', 'running', 'launching'], renderServer);
-  renderServer();
+
+  $('[data-new-instance]').addEventListener('click', openNewInstance);
+  $('[data-open-settings]').addEventListener('click', openSettings);
+
+  onNavigate((next) => {
+    path = next;
+    highlight();
+    renderRecent();
+  });
+  store.on(['instances', 'running'], renderRecent);
+  highlight();
 
   mountAccountMenu($('#account-box'));
+}
+
+function mountTopBar() {
+  const back = $('#nav-back');
+  const forward = $('#nav-forward');
+  const crumbsEl = $('#crumbs');
+  const actionsEl = $('#topbar-actions');
+  let path = currentRoute().path;
+
+  back.addEventListener('click', () => history.back());
+  forward.addEventListener('click', () => history.forward());
+
+  // The Navigation API (WebView2) knows whether there is anywhere to go; elsewhere both stay enabled.
+  const renderArrows = () => {
+    const navigation = window.navigation;
+    back.disabled = navigation ? !navigation.canGoBack : false;
+    forward.disabled = navigation ? !navigation.canGoForward : false;
+  };
+
+  const crumbsFor = () => {
+    if (path.startsWith('/instance/')) {
+      const id = decodeURIComponent(path.split('/')[2] ?? '');
+      const name = store.state.instances.find((i) => i.id === id)?.name ?? 'Instance';
+      return [{ label: 'Library', href: '#/library' }, { label: name }];
+    }
+    if (path.startsWith('/project/')) {
+      // Back to the search the project was opened from (pages/discover.js keeps it here).
+      let search = '/discover';
+      try {
+        search = sessionStorage.getItem('minearcade.discover.last') || search;
+      } catch {
+        // Plain Discover then.
+      }
+      return [{ label: 'Discover content', href: `#${search}` }, { label: currentCrumb() ?? 'Project' }];
+    }
+    const labels = { home: 'Home', library: 'Library', discover: 'Discover content' };
+    return [{ label: labels[sectionOf(path)] ?? 'MineArcade' }];
+  };
+
+  const renderCrumbs = () => {
+    const crumbs = crumbsFor();
+    setHtml(
+      crumbsEl,
+      crumbs.map((crumb, index) =>
+        index < crumbs.length - 1
+          ? html`<a class="crumb" href="${crumb.href}">${crumb.label}</a><span class="crumb-sep" aria-hidden="true">${icon('chevron-right', 'icon-sm')}</span>`
+          : html`<span class="crumb crumb-current" aria-current="page">${crumb.label}</span>`,
+      ),
+    );
+  };
+
+  // Right side: the MineArcade join button (Home has its own) and the running-game pill.
+  const renderActions = () => {
+    const address = featuredServer();
+    const spotlight = spotlightInstance();
+    const running = [...store.state.running];
+    const launching = spotlight && store.state.launching.has(spotlight.id);
+    const showJoin = address && sectionOf(path) !== 'home' && !(spotlight && store.state.running.has(spotlight.id));
+    const first = running.length ? store.state.instances.find((i) => i.id === running[0]) : null;
+
+    setHtml(
+      actionsEl,
+      html`
+        ${showJoin &&
+        html`<button class="btn btn-primary btn-sm" data-join data-tip="Join ${address}${spotlight ? ` with ${spotlight.name}` : ''}" ${launching ? 'disabled' : ''}>
+          ${launching ? spinner() : icon('server', 'icon-sm')} ${launching ? 'Starting…' : 'Join MineArcade'}
+        </button>`}
+        ${running.length
+          ? html`<div class="run-pill">
+              <span class="live-dot"></span>
+              <a href="#/instance/${encodeURIComponent(running[0])}" data-tip="View instance">${first?.name ?? 'Minecraft'}</a>
+              ${running.length > 1 && html`<span class="faint small">+${running.length - 1}</span>`}
+              <button class="run-pill-btn danger" data-stop-running data-tip="Stop instance" aria-label="Stop instance">${icon('stop-circle')}</button>
+              <button class="run-pill-btn" data-logs data-tip="View logs" aria-label="View logs">${icon('terminal')}</button>
+            </div>`
+          : html`<div class="run-pill is-idle"><span class="idle-dot"></span>No instances running</div>`}`,
+    );
+  };
+
+  actionsEl.addEventListener('click', (event) => {
+    const running = [...store.state.running];
+    if (event.target.closest('[data-join]')) return quickJoin();
+    if (event.target.closest('[data-stop-running]') && running.length) {
+      const instance = store.state.instances.find((i) => i.id === running[0]);
+      return stopInstance(running[0], instance?.name);
+    }
+    if (event.target.closest('[data-logs]') && running.length) navigate(`/instance/${running[0]}/console`);
+  });
+
+  onNavigate((next) => {
+    path = next;
+    renderArrows();
+    renderCrumbs();
+    renderActions();
+  });
+  onCrumb(renderCrumbs);
+  store.on('instances', renderCrumbs);
+  store.on(['settings', 'instances', 'running', 'launching'], renderActions);
+  renderArrows();
+  renderCrumbs();
+  renderActions();
 }
 
 // ---------- Progress footer ----------
@@ -193,7 +325,9 @@ async function boot() {
   } catch (error) {
     toast("Couldn't load settings", { kind: 'error', description: errorText(error) });
   }
-  mountSidebar();
+  initTooltips();
+  mountRail();
+  mountTopBar();
   mountProgressFooter();
   initDrop();
   await listenToBackend();

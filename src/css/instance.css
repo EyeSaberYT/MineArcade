@@ -120,9 +120,9 @@
 
 .inst-updates {
   padding: 14px 16px;
-  border: 1px solid rgba(45, 226, 230, 0.35);
+  border: 1px solid var(--primary-line);
   border-radius: var(--radius);
-  background: linear-gradient(90deg, rgba(45, 226, 230, 0.08), var(--primary-soft));
+  background: var(--primary-soft);
 }
 
 .inst-updates-icon {
@@ -194,7 +194,7 @@
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: #05040c;
+  background: #0f1013;
 }
 
 .shot-stage img {
@@ -208,7 +208,7 @@
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  background: rgba(11, 9, 24, 0.7);
+  background: rgba(10, 11, 13, 0.7);
 }
 
 .shot-nav:disabled {
@@ -282,8 +282,8 @@
 }
 
 .scan-clean {
-  border-color: rgba(61, 255, 139, 0.35);
-  background: rgba(61, 255, 139, 0.08);
+  border-color: var(--primary-line);
+  background: rgba(27, 217, 106, 0.1);
   color: var(--green);
 }
 

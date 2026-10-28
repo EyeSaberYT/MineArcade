@@ -3,6 +3,7 @@
 import * as api from '../api.js';
 import { gameVersionSummary, openInstallDialog, projectIcon, versionTypeTone } from '../dialogs/install.js';
 import { mountMarkdown } from '../markdown.js';
+import { setCrumb } from '../router.js';
 import { store } from '../store.js';
 import { LAST_DISCOVER_KEY } from './discover.js';
 import {
@@ -87,7 +88,6 @@ export function render(root, params, query) {
     setHtml(
       root,
       html`
-        <a class="back-link" href="#${backPath()}">${icon('arrow-left', 'icon-sm')} Back to Discover</a>
         <div class="skeleton" style="height:180px"></div>
         <div class="skeleton" style="height:360px"></div>`,
     );
@@ -111,13 +111,13 @@ export function render(root, params, query) {
   }
 
   function drawPage() {
+    setCrumb(project.title);
     const instance = targetInstance();
     const gallery = project.gallery ?? [];
     const isModpack = project.projectType === 'modpack';
     setHtml(
       root,
       html`
-        <a class="back-link" href="#${backPath()}">${icon('arrow-left', 'icon-sm')} Back to Discover</a>
 
         ${instanceId &&
         instance &&

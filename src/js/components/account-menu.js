@@ -1,4 +1,5 @@
-// Sidebar footer: the active player, with account switching, skin and sign-out.
+// Bottom of the rail: the active player's head, opening account switching,
+// skin and sign-out (like the profile button in the Modrinth App).
 import { signIn, signOut, switchAccount } from '../actions.js';
 import { activeAccount, store } from '../store.js';
 import { html, icon, playerHead, setHtml, showMenu } from '../ui.js';
@@ -7,18 +8,16 @@ export function mountAccountMenu(root) {
   const render = () => {
     const account = activeAccount();
     if (!account) {
-      setHtml(root, html`<button class="btn btn-primary btn-block" data-signin>${icon('user')} Sign in with Microsoft</button>`);
+      setHtml(
+        root,
+        html`<button class="rail-btn rail-signin" data-signin data-tip="Sign in with Microsoft" aria-label="Sign in with Microsoft">${icon('log-in')}</button>`,
+      );
       return;
     }
     setHtml(
       root,
-      html`<button class="account-card" data-menu title="Accounts">
-        ${playerHead(account, 34)}
-        <div class="grow">
-          <div class="truncate bold">${account.username}</div>
-          <div class="tiny muted">Microsoft account</div>
-        </div>
-        ${icon('chevron-up', 'icon-sm')}
+      html`<button class="rail-btn rail-account" data-menu data-tip="Playing as ${account.username}" aria-label="Account: ${account.username}">
+        ${playerHead(account, 32)}
       </button>`,
     );
   };
@@ -31,7 +30,7 @@ export function mountAccountMenu(root) {
     showMenu(
       anchor,
       [
-        { header: 'Accounts' },
+        { header: 'Playing as' },
         ...store.state.accounts.map((account) => ({
           label: account.username,
           leading: String(playerHead(account, 22)),
@@ -47,7 +46,7 @@ export function mountAccountMenu(root) {
         { label: 'Add account', icon: 'plus', onSelect: signIn },
         current && { label: `Sign out ${current.username}`, icon: 'log-out', danger: true, onSelect: () => signOut(current) },
       ].filter(Boolean),
-      { placement: 'above' },
+      { placement: 'right' },
     );
   });
 

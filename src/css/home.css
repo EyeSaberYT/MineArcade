@@ -60,8 +60,29 @@
   font-size: 13px;
 }
 
+/* The hero is always dark, so its text and links don't follow the theme. */
 .arcade-hero .muted {
   color: #b9b5e6;
+}
+
+.arcade-hero a {
+  color: #2de2e6;
+}
+
+.arcade-hero .eyebrow {
+  color: #ffd23f;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.arcade-hero h2 {
+  color: #ffffff;
+}
+
+.arcade-hero :focus-visible {
+  outline-color: #2de2e6;
 }
 
 .arcade-hero-pixels i {

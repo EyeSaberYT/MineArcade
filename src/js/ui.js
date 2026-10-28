@@ -138,6 +138,9 @@ const ICONS = {
   'arrow-up-circle': '<circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4"/><path d="M12 16V8"/>',
   more: '<circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>',
   user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  'log-in':
+    '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/>',
+  'stop-circle': '<circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
   'log-out':
     '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
   shirt:
@@ -577,7 +580,7 @@ export function closeMenu() {
 /**
  * Show a dropdown next to `anchor`.
  *   items: [{ label, icon, onSelect, danger, disabled, trail }, { separator: true }, { header: 'Text' }]
- *   align: 'start' | 'end'; placement: 'below' | 'above'
+ *   align: 'start' | 'end'; placement: 'below' | 'above' | 'right' (beside the rail, bottom-aligned)
  */
 export function showMenu(anchor, items, { align = 'start', placement = 'below' } = {}) {
   const wasMine = openMenuState?.anchor === anchor;
@@ -601,10 +604,17 @@ export function showMenu(anchor, items, { align = 'start', placement = 'below' }
 
   const rect = anchor.getBoundingClientRect();
   const menuRect = node.getBoundingClientRect();
-  let left = align === 'end' ? rect.right - menuRect.width : rect.left;
+  let left;
+  let top;
+  if (placement === 'right') {
+    left = rect.right + 8;
+    top = Math.min(rect.top, window.innerHeight - menuRect.height - 8);
+  } else {
+    left = align === 'end' ? rect.right - menuRect.width : rect.left;
+    top = placement === 'above' ? rect.top - menuRect.height - 6 : rect.bottom + 6;
+    if (top + menuRect.height > window.innerHeight - 8) top = rect.top - menuRect.height - 6;
+  }
   left = Math.max(8, Math.min(left, window.innerWidth - menuRect.width - 8));
-  let top = placement === 'above' ? rect.top - menuRect.height - 6 : rect.bottom + 6;
-  if (top + menuRect.height > window.innerHeight - 8) top = rect.top - menuRect.height - 6;
   node.style.left = `${left}px`;
   node.style.top = `${Math.max(8, top)}px`;
 
@@ -625,3 +635,52 @@ export function showMenu(anchor, items, { align = 'start', placement = 'below' }
 
 window.addEventListener('resize', () => closeMenu());
 window.addEventListener('blur', () => closeMenu());
+
+// ==========================================================================
+// Tooltips
+// ==========================================================================
+
+/**
+ * Hover and focus tooltips for anything with `data-tip`. Rail buttons get
+ * theirs on the right, everything else below.
+ */
+export function initTooltips() {
+  const tip = el('<div class="tooltip" role="tooltip" hidden></div>');
+  document.body.appendChild(tip);
+  let target = null;
+
+  const show = (node) => {
+    target = node;
+    tip.textContent = node.dataset.tip;
+    tip.hidden = false;
+    const rect = node.getBoundingClientRect();
+    const tipRect = tip.getBoundingClientRect();
+    const beside = Boolean(node.closest('.rail'));
+    let left = beside ? rect.right + 10 : rect.left + rect.width / 2 - tipRect.width / 2;
+    let top = beside ? rect.top + rect.height / 2 - tipRect.height / 2 : rect.bottom + 8;
+    left = Math.max(6, Math.min(left, window.innerWidth - tipRect.width - 6));
+    top = Math.max(6, Math.min(top, window.innerHeight - tipRect.height - 6));
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  };
+  const hide = () => {
+    target = null;
+    tip.hidden = true;
+  };
+
+  document.addEventListener('mouseover', (event) => {
+    const node = event.target.closest?.('[data-tip]');
+    if (node === target) return;
+    if (node?.dataset.tip) show(node);
+    else hide();
+  });
+  document.addEventListener('focusin', (event) => {
+    const node = event.target.closest?.('[data-tip]');
+    if (node?.dataset.tip && node.matches(':focus-visible')) show(node);
+  });
+  document.addEventListener('focusout', hide);
+  document.addEventListener('mousedown', hide, true);
+  // Keyboard activation too, so a menu the button opens isn't covered.
+  document.addEventListener('click', hide, true);
+  window.addEventListener('blur', hide);
+}

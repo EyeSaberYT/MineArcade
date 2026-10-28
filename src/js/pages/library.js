@@ -18,7 +18,7 @@ export function render(root, _params, query) {
     html`
       <header class="page-head">
         <div>
-          <h1>Instances</h1>
+          <h1>Library</h1>
           <p>Every Minecraft setup, organised and ready to launch.</p>
         </div>
         <div class="page-actions">

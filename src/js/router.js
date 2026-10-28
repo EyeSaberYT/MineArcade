@@ -47,10 +47,26 @@ export function currentRoute() {
 }
 
 const listeners = new Set();
-/** Called with the path after each navigation (used by the sidebar). */
+/** Called with the path after each navigation (used by the rail and top bar). */
 export function onNavigate(fn) {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+
+let crumb = null;
+const crumbListeners = new Set();
+
+/** Name the current page in the top bar's breadcrumb, e.g. a project's title. Cleared on navigation. */
+export function setCrumb(label) {
+  crumb = label || null;
+  crumbListeners.forEach((fn) => fn(crumb));
+}
+
+export const currentCrumb = () => crumb;
+
+export function onCrumb(fn) {
+  crumbListeners.add(fn);
+  return () => crumbListeners.delete(fn);
 }
 
 async function resolve() {
@@ -78,6 +94,7 @@ async function resolve() {
   }
   current.cleanup = null;
 
+  crumb = null;
   listeners.forEach((fn) => fn(path));
 
   const view = document.getElementById('view');

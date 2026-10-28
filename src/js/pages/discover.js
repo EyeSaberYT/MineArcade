@@ -13,7 +13,6 @@ import {
   icon,
   instanceIcon,
   loaderLabel,
-  projectTypeBadge,
   projectTypeLabel,
   relativeTime,
   setHtml,
@@ -151,15 +150,6 @@ export function render(root, params, query) {
       </header>
       <div data-banner></div>
       <section class="card dc-search">
-        <div class="row-between" style="flex-wrap:wrap">
-          <div>
-            <p class="eyebrow">Community content</p>
-            <h2 class="dc-search-title">Explore projects</h2>
-          </div>
-          <div class="segmented" role="group" aria-label="Content source">
-            ${SOURCES.map((option) => html`<button data-source="${option.value}">${option.label}</button>`)}
-          </div>
-        </div>
         <nav class="tabs" role="tablist">
           ${PROJECT_TYPES.map(
             (t) => html`<button class="tab ${t === safeType ? 'active' : ''}" role="tab" aria-selected="${t === safeType}" data-type="${t}">${projectTypeLabel(t)}s</button>`,
@@ -170,6 +160,9 @@ export function render(root, params, query) {
             ${icon('search', 'icon-sm')}
             <input class="input" data-search type="search" value="${search}" placeholder="Search ${projectTypeLabel(safeType).toLowerCase()}s" spellcheck="false" autofocus>
           </label>
+          <div class="segmented dc-source" role="group" aria-label="Content source">
+            ${SOURCES.map((option) => html`<button data-source="${option.value}">${option.label}</button>`)}
+          </div>
           <select class="input dc-sort" data-sort aria-label="Sort by"></select>
         </div>
       </section>
@@ -265,9 +258,10 @@ export function render(root, params, query) {
 
   function card(hit, index) {
     const categoriesShown = (hit.displayCategories ?? []).filter((c) => !KNOWN_LOADERS.includes(c)).slice(0, 3);
+    // Grid cards have room for two stats beside the Install button; followers go.
     const stats = html`
       <span title="Downloads">${icon('download', 'icon-sm')} ${compactNumber(hit.downloads)}</span>
-      ${hit.follows > 0 && html`<span title="Followers">${icon('heart', 'icon-sm')} ${compactNumber(hit.follows)}</span>`}
+      ${view === 'list' && hit.follows > 0 && html`<span title="Followers">${icon('heart', 'icon-sm')} ${compactNumber(hit.follows)}</span>`}
       ${hit.dateModified && html`<span title="Updated">${icon('clock', 'icon-sm')} ${relativeTime(hit.dateModified)}</span>`}`;
     const chips = categoriesShown.map((c) => html`<span class="dc-tag">${categoryLabel(c)}</span>`);
     const installBtn = html`<button class="btn btn-outline btn-sm" data-install="${index}">${icon(hit.projectType === 'modpack' ? 'package' : 'download', 'icon-sm')} Install</button>`;
@@ -276,7 +270,7 @@ export function render(root, params, query) {
       return html`<article class="dc-card dc-card-list" data-open="${index}" tabindex="0" role="link">
         ${projectIcon(hit, 64)}
         <div class="grow">
-          <div class="row" style="gap:8px"><strong class="truncate dc-title">${hit.title}</strong>${projectTypeBadge(hit.projectType)}</div>
+          <strong class="truncate dc-title" style="display:block">${hit.title}</strong>
           ${hit.author && html`<div class="small muted">by ${hit.author}</div>`}
           <p class="dc-desc">${hit.description}</p>
           <div class="dc-meta">${stats}${chips}</div>
@@ -289,8 +283,7 @@ export function render(root, params, query) {
         ${projectIcon(hit, 48)}
         <div class="grow">
           <strong class="truncate dc-title" style="display:block">${hit.title}</strong>
-          ${hit.author && html`<div class="tiny muted truncate">by ${hit.author}</div>`}
-          <div style="margin-top:5px">${projectTypeBadge(hit.projectType)}</div>
+          ${hit.author && html`<div class="small muted truncate">by ${hit.author}</div>`}
         </div>
       </div>
       <p class="dc-desc">${hit.description}</p>

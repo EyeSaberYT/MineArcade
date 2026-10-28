@@ -121,7 +121,6 @@ export function mountContent(pane, ctx) {
             ${entry.title ? `${entry.name} · ` : ''}${formatBytes(entry.size)}${entry.projectId ? '' : ' · local file'}
           </div>
         </div>
-        ${filter === 'all' && projectTypeBadge(entry.kind)}
         <div class="row-actions">
           ${update &&
           html`<button class="btn btn-cyan btn-sm" data-update="${update.projectId}" ${applying.has(update.projectId) || applyingAll ? 'disabled' : ''} title="Update to ${update.latestVersionName}">
