@@ -1,5 +1,7 @@
-// Settings tab: name, icon, notes, memory, arguments, Java, window, Quick Play,
-// environment variables and the mod loader build.
+// Instance settings, as in the Modrinth App: a modal over the instance page
+// with a sidebar of panels (Instance: General, Installation; Game: Java and
+// memory, Window, Launch). Changes save on their own a moment after you stop
+// typing; there is no Save button.
 import * as api from '../../api.js';
 import { featuredServer, refreshInstances } from '../../actions.js';
 import { pickIcon } from '../../dialogs/icon-picker.js';
@@ -9,12 +11,22 @@ import {
   html,
   icon,
   instanceIcon,
+  loaderBadge,
   loaderLabel,
+  openModal,
   setHtml,
   spinner,
   toast,
   toastError,
 } from '../../ui.js';
+
+const PANELS = [
+  { id: 'general', label: 'General', icon: 'info', category: 'Instance' },
+  { id: 'installation', label: 'Installation', icon: 'wrench', category: 'Instance' },
+  { id: 'java', label: 'Java and memory', icon: 'coffee', category: 'Game' },
+  { id: 'window', label: 'Window', icon: 'app-window', category: 'Game' },
+  { id: 'launch', label: 'Launch', icon: 'rocket', category: 'Game' },
+];
 
 const QUICK_PLAY = [
   { type: 'none', label: 'Title screen' },
@@ -26,6 +38,7 @@ const QUICK_PLAY = [
 const MEMORY_MIN = 512;
 const MEMORY_MAX = 32768;
 const MEMORY_STEP = 256;
+const SAVE_DELAY_MS = 600;
 
 /** One argument per line; blank lines dropped. */
 const splitLines = (value) =>
@@ -36,126 +49,180 @@ const splitLines = (value) =>
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
-export function mountSettings(pane, ctx) {
+/**
+ * Open the settings modal for the instance page's `ctx`
+ * ({ id, instance, setInstance, duplicate, confirmDelete }).
+ * Returns the modal; closing it saves anything still pending, then calls `onClose`.
+ */
+export function openInstanceSettings(ctx, { panel: initialPanel = 'general', onClose } = {}) {
   const { id } = ctx;
   let draft = clone(ctx.instance);
-  let saving = false;
+  let panel = PANELS.some((p) => p.id === initialPanel) ? initialPanel : 'general';
   let loaderRequest = 0;
   let installing = false;
+  let saveTimer = null;
+  let saving = false;
+  let saveAgain = false;
 
-  function quickPlayFor(type) {
-    if (type === 'multiplayer') return { type, address: draft.settings.quickPlay.address ?? '' };
-    if (type === 'singleplayer') return { type, world: draft.settings.quickPlay.world ?? '' };
-    return { type };
-  }
-
-  setHtml(
-    pane,
-    html`
-      <div class="stack">
-        <section class="panel stack">
-          <h3>General</h3>
-          <div class="grid-2">
+  const categories = [...new Set(PANELS.map((p) => p.category))];
+  const modal = openModal({
+    size: 'xl',
+    title: html`<span class="inst-settings-title">
+      <span data-title-icon></span>
+      <span class="truncate" data-title-name></span>
+      ${icon('chevron-right', 'icon-sm')}
+      <strong>Settings</strong>
+    </span>`,
+    body: html`
+      <div class="inst-settings-layout">
+        <nav class="inst-settings-nav" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
+          ${categories.map(
+            (category) => html`
+              <div class="inst-settings-cat">${category}</div>
+              ${PANELS.filter((p) => p.category === category).map(
+                (p) => html`<button class="inst-settings-tab" role="tab" data-panel="${p.id}">${icon(p.icon)} ${p.label}</button>`,
+              )}`,
+          )}
+          <p class="inst-settings-status small muted" data-save-status aria-live="polite"></p>
+        </nav>
+        <div class="inst-settings-pane" role="tabpanel">
+          <section class="stack-lg" data-body="general">
             <label class="field">
               <span>Name</span>
               <input class="input" data-field="name" maxlength="64">
             </label>
+            <div class="field">
+              <span class="field-label">Icon</span>
+              <div class="row" data-icon-row></div>
+            </div>
             <label class="field">
               <span>Group <em>(optional)</em></span>
               <input class="input" data-field="group" placeholder="e.g. Survival">
             </label>
-          </div>
-          <div class="field">
-            <span class="field-label">Icon</span>
-            <div class="row" data-icon-row></div>
-          </div>
-          <label class="field">
-            <span>Notes <em>(optional)</em></span>
-            <textarea class="input" data-field="notes" rows="3" placeholder="Anything worth remembering about this instance"></textarea>
-          </label>
-        </section>
-
-        <section class="panel stack">
-          <h3>Memory &amp; Java</h3>
-          <div class="grid-2">
             <label class="field">
-              <span>Minimum memory <b data-mem-label="memoryMin"></b></span>
-              <input type="range" data-mem="memoryMin" min="${MEMORY_MIN}" max="${MEMORY_MAX}" step="${MEMORY_STEP}">
+              <span>Notes <em>(optional)</em></span>
+              <textarea class="input" data-field="notes" rows="3" placeholder="Anything worth remembering about this instance"></textarea>
             </label>
-            <label class="field">
-              <span>Maximum memory <b data-mem-label="memoryMax"></b></span>
-              <input type="range" data-mem="memoryMax" min="${MEMORY_MIN}" max="${MEMORY_MAX}" step="${MEMORY_STEP}">
-            </label>
-          </div>
-          <p class="hint">Most modpacks run well with 4–8 GB. Giving Minecraft more than your computer can spare makes it slower, not faster.</p>
-          <div class="field">
-            <span class="field-label">Java executable <em>(blank = automatic)</em></span>
-            <div class="row">
-              <input class="input mono" data-field="javaPath" placeholder="Picked automatically for this Minecraft version" spellcheck="false">
-              <button class="btn btn-outline" data-browse-java>${icon('folder', 'icon-sm')} Browse</button>
+            <div class="inst-settings-actions">
+              <div class="row-between">
+                <div><b>Duplicate instance</b><p class="hint">A full copy, with its own worlds, mods and settings.</p></div>
+                <button class="btn btn-outline" data-duplicate>${icon('copy', 'icon-sm')} Duplicate</button>
+              </div>
+              <div class="row-between">
+                <div><b>Delete instance</b><p class="hint">Removes it from MineArcade, and optionally its files.</p></div>
+                <button class="btn btn-danger" data-delete>${icon('trash', 'icon-sm')} Delete</button>
+              </div>
             </div>
-          </div>
-          <label class="field">
-            <span>JVM arguments <em>(one per line)</em></span>
-            <textarea class="input mono" data-lines="jvmArgs" rows="4" placeholder="-XX:+UseG1GC" spellcheck="false"></textarea>
-          </label>
-          <label class="field">
-            <span>Game arguments <em>(one per line)</em></span>
-            <textarea class="input mono" data-lines="gameArgs" rows="3" spellcheck="false"></textarea>
-          </label>
-          <div class="field">
-            <span class="field-label">Environment variables</span>
-            <div class="stack-sm" data-env></div>
-            <div><button class="btn btn-ghost btn-sm" data-env-add>${icon('plus', 'icon-sm')} Add variable</button></div>
-          </div>
-        </section>
+          </section>
 
-        <section class="panel stack">
-          <h3>Window &amp; Quick Play</h3>
-          <div class="grid-2">
-            <label class="field">
-              <span>Width</span>
-              <input class="input" type="number" min="320" step="1" data-num="width">
-            </label>
-            <label class="field">
-              <span>Height</span>
-              <input class="input" type="number" min="240" step="1" data-num="height">
-            </label>
-          </div>
-          <label class="switch-row">
-            <input type="checkbox" data-fullscreen>
-            <span class="switch"></span>
-            <span>Launch in fullscreen</span>
-          </label>
-          <div class="field">
-            <span class="field-label">When the game starts</span>
-            <div class="segmented" data-quickplay></div>
-            <div data-quickplay-extra></div>
-            <span class="hint">Quick Play needs Minecraft 1.20 or newer; older versions open the title screen.</span>
-          </div>
-          <div class="field">
-            <span class="field-label">Game directory <em>(blank = the instance folder)</em></span>
-            <div class="row">
-              <input class="input mono" data-field="gameDir" placeholder="Default" spellcheck="false">
-              <button class="btn btn-outline" data-browse-dir>${icon('folder', 'icon-sm')} Browse</button>
+          <section class="stack-lg" data-body="installation">
+            <div class="field">
+              <span class="field-label">Platform</span>
+              <div class="row-wrap" data-platform style="gap:6px"></div>
             </div>
-          </div>
-        </section>
+            <div class="stack" data-loader></div>
+          </section>
 
-        <section class="panel stack" data-loader></section>
+          <section class="stack-lg" data-body="java">
+            <div class="grid-2">
+              <label class="field">
+                <span>Minimum memory <b data-mem-label="memoryMin"></b></span>
+                <input type="range" data-mem="memoryMin" min="${MEMORY_MIN}" max="${MEMORY_MAX}" step="${MEMORY_STEP}">
+              </label>
+              <label class="field">
+                <span>Maximum memory <b data-mem-label="memoryMax"></b></span>
+                <input type="range" data-mem="memoryMax" min="${MEMORY_MIN}" max="${MEMORY_MAX}" step="${MEMORY_STEP}">
+              </label>
+            </div>
+            <p class="hint" style="margin-top:-10px">Most modpacks run well with 4–8 GB. Giving Minecraft more than your computer can spare makes it slower, not faster.</p>
+            <div class="field">
+              <span class="field-label">Java executable <em>(blank = automatic)</em></span>
+              <div class="row">
+                <input class="input mono" data-field="javaPath" placeholder="Picked automatically for this Minecraft version" spellcheck="false">
+                <button class="btn btn-outline" data-browse-java>${icon('folder', 'icon-sm')} Browse</button>
+              </div>
+            </div>
+            <label class="field">
+              <span>Java arguments <em>(one per line)</em></span>
+              <textarea class="input mono" data-lines="jvmArgs" rows="4" placeholder="-XX:+UseG1GC" spellcheck="false"></textarea>
+            </label>
+            <div class="field">
+              <span class="field-label">Environment variables</span>
+              <div class="stack-sm" data-env></div>
+              <div><button class="btn btn-ghost btn-sm" data-env-add>${icon('plus', 'icon-sm')} Add variable</button></div>
+            </div>
+          </section>
 
-        <div class="row inst-save-bar">
-          <span class="small muted grow" data-save-status></span>
-          <button class="btn btn-ghost" data-reset>Discard changes</button>
-          <button class="btn btn-primary" data-save>${icon('save', 'icon-sm')} Save changes</button>
+          <section class="stack-lg" data-body="window">
+            <label class="switch-row">
+              <span class="grow"><b>Fullscreen</b><span class="hint" style="display:block">Start the game in fullscreen instead of a window.</span></span>
+              <input type="checkbox" data-fullscreen>
+              <span class="switch"></span>
+            </label>
+            <div class="grid-2">
+              <label class="field">
+                <span>Width</span>
+                <input class="input" type="number" min="320" step="1" data-num="width">
+              </label>
+              <label class="field">
+                <span>Height</span>
+                <input class="input" type="number" min="240" step="1" data-num="height">
+              </label>
+            </div>
+          </section>
+
+          <section class="stack-lg" data-body="launch">
+            <div class="field">
+              <span class="field-label">When the game starts</span>
+              <div class="segmented" data-quickplay></div>
+              <div data-quickplay-extra></div>
+              <span class="hint">Quick Play needs Minecraft 1.20 or newer; older versions open the title screen.</span>
+            </div>
+            <label class="field">
+              <span>Game arguments <em>(one per line)</em></span>
+              <textarea class="input mono" data-lines="gameArgs" rows="3" spellcheck="false"></textarea>
+            </label>
+            <div class="field">
+              <span class="field-label">Game directory <em>(blank = the instance folder)</em></span>
+              <div class="row">
+                <input class="input mono" data-field="gameDir" placeholder="Default" spellcheck="false">
+                <button class="btn btn-outline" data-browse-dir>${icon('folder', 'icon-sm')} Browse</button>
+              </div>
+            </div>
+          </section>
         </div>
       </div>`,
-  );
+    onClose: () => {
+      flushSave();
+      onClose?.();
+    },
+  });
+  modal.root.classList.add('inst-settings-dialog');
 
+  const pane = modal.body;
   const $ = (selector) => pane.querySelector(selector);
-  const saveBtn = $('[data-save]');
+  const alive = () => !modal.closed;
+
+  // ---------- Panels ----------
+
+  function showPanel(next) {
+    panel = next;
+    pane.querySelectorAll('[data-panel]').forEach((tab) => {
+      const active = tab.dataset.panel === panel;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', String(active));
+    });
+    pane.querySelectorAll('[data-body]').forEach((body) => (body.hidden = body.dataset.body !== panel));
+    $('.inst-settings-pane').scrollTop = 0;
+  }
 
   // ---------- Filling the form from the draft ----------
+
+  function drawTitle() {
+    const head = modal.root.querySelector('.modal-head');
+    setHtml(head.querySelector('[data-title-icon]'), instanceIcon({ icon: draft.icon, name: draft.name || 'Instance', id }, 24));
+    head.querySelector('[data-title-name]').textContent = draft.name || 'Instance';
+  }
 
   function drawIcon() {
     setHtml(
@@ -163,6 +230,7 @@ export function mountSettings(pane, ctx) {
       html`${instanceIcon({ icon: draft.icon, name: draft.name || 'Instance', id }, 52)}
         <button class="btn btn-outline btn-sm" data-pick-icon>${icon('image', 'icon-sm')} Change icon</button>`,
     );
+    drawTitle();
   }
 
   function drawMemory() {
@@ -188,6 +256,12 @@ export function mountSettings(pane, ctx) {
           )
         : html`<span class="hint">None. These are passed to the game process, e.g. for a GPU or mod setting.</span>`,
     );
+  }
+
+  function quickPlayFor(type) {
+    if (type === 'multiplayer') return { type, address: draft.settings.quickPlay.address ?? '' };
+    if (type === 'singleplayer') return { type, world: draft.settings.quickPlay.world ?? '' };
+    return { type };
   }
 
   function drawQuickPlay() {
@@ -216,7 +290,7 @@ export function mountSettings(pane, ctx) {
       api.worlds
         .overview(id)
         .then((overview) => {
-          const list = ctx.alive() && pane.querySelector('[data-worlds]');
+          const list = alive() && pane.querySelector('[data-worlds]');
           if (list) setHtml(list, overview.worlds.map((w) => html`<option value="${w.name}"></option>`));
         })
         .catch(() => {});
@@ -241,10 +315,9 @@ export function mountSettings(pane, ctx) {
     drawEnv();
     drawQuickPlay();
     drawLoader();
-    markDirty();
   }
 
-  // ---------- Dirty tracking & validation ----------
+  // ---------- Validation & saving ----------
 
   /** The instance as it would be saved. */
   function collect(source = draft) {
@@ -273,44 +346,91 @@ export function mountSettings(pane, ctx) {
     return null;
   }
 
-  function markDirty() {
-    const next = collect();
-    // Normalise both sides so `""` vs `null` doesn't count as a change.
-    const dirty = JSON.stringify(next) !== JSON.stringify(collect(ctx.instance));
-    const issue = problem(next);
+  // Normalise both sides so `""` vs `null` doesn't count as a change.
+  const isDirty = (next) => JSON.stringify(next) !== JSON.stringify(collect(ctx.instance));
+
+  function setStatus(text, tone = 'muted') {
     const status = $('[data-save-status]');
-    status.textContent = issue ?? (dirty ? 'Unsaved changes' : '');
-    status.className = `small grow ${issue ? 'danger-text' : dirty ? 'warn-text' : 'muted'}`;
-    saveBtn.disabled = saving || !dirty || Boolean(issue);
-    $('[data-reset]').disabled = saving || !dirty;
+    if (!status) return;
+    status.textContent = text;
+    status.className = `inst-settings-status small ${tone}`;
+  }
+
+  /** Called after every edit: validate now, save shortly after typing stops. */
+  function changed() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    const next = collect();
+    const issue = problem(next);
+    if (issue) return setStatus(issue, 'danger-text');
+    if (!isDirty(next)) return setStatus(saving ? 'Saving…' : '');
+    setStatus('Saving…');
+    saveTimer = setTimeout(save, SAVE_DELAY_MS);
+  }
+
+  async function save() {
+    saveTimer = null;
+    if (saving) {
+      saveAgain = true;
+      return;
+    }
+    const next = collect();
+    if (problem(next) || !isDirty(next)) return;
+    saving = true;
+    try {
+      const saved = await api.instances.update(next);
+      ctx.setInstance(saved);
+      refreshInstances();
+      if (alive()) setStatus('All changes saved', 'success-text');
+    } catch (error) {
+      if (alive()) setStatus(`Couldn’t save: ${errorText(error)}`, 'danger-text');
+      else toastError(error, "Couldn't save the instance settings");
+    }
+    saving = false;
+    if (saveAgain) {
+      saveAgain = false;
+      save();
+    }
+  }
+
+  /** Closing the modal saves straight away instead of waiting for the timer. */
+  function flushSave() {
+    if (saveTimer === null) return;
+    clearTimeout(saveTimer);
+    save();
   }
 
   // ---------- Loader ----------
 
   async function drawLoader() {
-    const section = $('[data-loader]');
     const current = ctx.instance;
+    setHtml(
+      $('[data-platform]'),
+      html`<span class="badge badge-mono">Minecraft ${current.gameVersion}</span>${loaderBadge(current.loader)}`,
+    );
+    const section = $('[data-loader]');
     if (current.loader === 'vanilla') {
       setHtml(
         section,
-        html`<h3>Mod loader</h3>
-          <p class="hint">This is a vanilla ${current.gameVersion} instance, so there's no loader to manage. Create a new instance to play with Fabric, Quilt, Forge or NeoForge.</p>`,
+        html`<p class="hint">This is a vanilla instance, so there's no mod loader to manage. Create a new instance to play with Fabric, Quilt, Forge or NeoForge.</p>`,
       );
       return;
     }
     const request = ++loaderRequest;
     setHtml(
       section,
-      html`<h3>${loaderLabel(current.loader)} loader</h3>
-        <p class="hint">Installed build: <code>${current.loaderVersion ?? 'not installed yet'}</code>. Changing it reinstalls the loader for Minecraft ${current.gameVersion}; your mods stay in place.</p>
-        <div class="row">
-          <select class="input" data-loader-version disabled><option>Loading builds…</option></select>
-          <button class="btn btn-outline" data-install-loader disabled>${icon('download', 'icon-sm')} Install</button>
-        </div>`,
+      html`<div class="field">
+          <span class="field-label">${loaderLabel(current.loader)} version</span>
+          <div class="row">
+            <select class="input" data-loader-version disabled><option>Loading builds…</option></select>
+            <button class="btn btn-outline" data-install-loader disabled>${icon('download', 'icon-sm')} Install</button>
+          </div>
+        </div>
+        <p class="hint">Installed build: <code>${current.loaderVersion ?? 'not installed yet'}</code>. Changing it reinstalls the loader for Minecraft ${current.gameVersion}; your mods stay in place.</p>`,
     );
     try {
       const list = await api.versions.loaderVersions(current.loader, current.gameVersion);
-      if (request !== loaderRequest || !ctx.alive()) return;
+      if (request !== loaderRequest || !alive()) return;
       const select = section.querySelector('[data-loader-version]');
       if (!list.length) {
         setHtml(select, html`<option value="">No ${loaderLabel(current.loader)} builds for ${current.gameVersion}</option>`);
@@ -328,7 +448,7 @@ export function mountSettings(pane, ctx) {
       select.disabled = installing;
       updateInstallButton();
     } catch (error) {
-      if (request !== loaderRequest || !ctx.alive()) return;
+      if (request !== loaderRequest || !alive()) return;
       setHtml(section.querySelector('[data-loader-version]'), html`<option value="">Couldn't load builds: ${errorText(error)}</option>`);
     }
   }
@@ -354,44 +474,17 @@ export function mountSettings(pane, ctx) {
       toast(`Installed ${label}`, { kind: 'success' });
       refreshInstances();
       installing = false;
-      if (!ctx.alive()) return;
       // Only the loader build changed; keep the rest of the draft.
       draft.loaderVersion = updated.loaderVersion;
       ctx.setInstance({ ...ctx.instance, loaderVersion: updated.loaderVersion });
-      drawLoader();
-      markDirty();
+      if (alive()) drawLoader();
     } catch (error) {
       installing = false;
       toastError(error, `Couldn't install ${label}`);
-      if (!ctx.alive()) return;
+      if (!alive()) return;
       pane.querySelector('[data-loader-version]').disabled = false;
       updateInstallButton();
     }
-  }
-
-  // ---------- Saving ----------
-
-  async function save() {
-    const next = collect();
-    if (problem(next)) return markDirty();
-    saving = true;
-    saveBtn.disabled = true;
-    setHtml(saveBtn, html`${spinner('icon-sm')} Saving…`);
-    try {
-      const saved = await api.instances.update(next);
-      toast('Instance settings saved', { kind: 'success' });
-      refreshInstances();
-      if (ctx.alive()) {
-        ctx.setInstance(saved);
-        draft = clone(saved);
-      }
-    } catch (error) {
-      toastError(error, "Couldn't save the settings");
-    }
-    saving = false;
-    if (!ctx.alive()) return;
-    setHtml(saveBtn, html`${icon('save', 'icon-sm')} Save changes`);
-    fill();
   }
 
   // ---------- Events ----------
@@ -424,14 +517,14 @@ export function mountSettings(pane, ctx) {
       return;
     }
     if (t.dataset.field === 'name') drawIcon();
-    markDirty();
+    changed();
   });
 
   pane.addEventListener('change', (event) => {
     const t = event.target;
     if (t.matches('[data-fullscreen]')) {
       draft.settings.fullscreen = t.checked;
-      markDirty();
+      changed();
     } else if (t.matches('[data-loader-version]')) {
       updateInstallButton();
     }
@@ -439,58 +532,65 @@ export function mountSettings(pane, ctx) {
 
   pane.addEventListener('click', async (event) => {
     const t = event.target;
+    const tab = t.closest('[data-panel]');
+    if (tab) return showPanel(tab.dataset.panel);
     const qp = t.closest('[data-qp]');
     if (qp) {
       draft.settings.quickPlay = quickPlayFor(qp.dataset.qp);
       drawQuickPlay();
-      return markDirty();
+      return changed();
     }
     if (t.closest('[data-qp-featured]')) {
       draft.settings.quickPlay = { type: 'multiplayer', address: featuredServer() };
       drawQuickPlay();
-      return markDirty();
+      return changed();
     }
     const iconBtn = t.closest('[data-pick-icon]');
     if (iconBtn) {
       const chosen = await pickIcon(iconBtn, draft.icon);
-      if (chosen === undefined || !ctx.alive()) return;
+      if (chosen === undefined || !alive()) return;
       draft.icon = chosen;
       drawIcon();
-      return markDirty();
+      return changed();
     }
     if (t.closest('[data-browse-java]')) {
       const path = await pickFile({ title: 'Choose a Java executable (java / javaw)' });
-      if (!path || !ctx.alive()) return;
+      if (!path || !alive()) return;
       draft.settings.javaPath = path;
       $('[data-field="javaPath"]').value = path;
-      return markDirty();
+      return changed();
     }
     if (t.closest('[data-browse-dir]')) {
       const path = await pickDirectory('Choose a game directory');
-      if (!path || !ctx.alive()) return;
+      if (!path || !alive()) return;
       draft.settings.gameDir = path;
       $('[data-field="gameDir"]').value = path;
-      return markDirty();
+      return changed();
     }
     if (t.closest('[data-env-add]')) {
       draft.settings.env = [...(draft.settings.env ?? []), ['', '']];
       drawEnv();
       pane.querySelector('[data-env-index]:last-child [data-env-key]')?.focus();
-      return markDirty();
+      return changed();
     }
     if (t.closest('[data-env-remove]')) {
       const index = Number(t.closest('[data-env-index]').dataset.envIndex);
       draft.settings.env.splice(index, 1);
       drawEnv();
-      return markDirty();
+      return changed();
     }
     if (t.closest('[data-install-loader]')) return installLoader();
-    if (t.closest('[data-reset]')) {
-      draft = clone(ctx.instance);
-      return fill();
+    if (t.closest('[data-duplicate]')) {
+      modal.close();
+      return ctx.duplicate();
     }
-    if (t.closest('[data-save]')) return save();
+    if (t.closest('[data-delete]')) {
+      modal.close();
+      return ctx.confirmDelete();
+    }
   });
 
   fill();
+  showPanel(panel);
+  return modal;
 }

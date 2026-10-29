@@ -85,7 +85,8 @@ function mountRail() {
     const next = Math.max(0, Math.floor((recentEl.clientHeight - 34) / 52));
     if (next !== fits) {
       fits = next;
-      renderRecent();
+      // Next frame, so redrawing can't re-trigger the observer mid-callback.
+      requestAnimationFrame(renderRecent);
     }
   }).observe(recentEl);
 

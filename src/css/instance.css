@@ -227,15 +227,127 @@
 
 /* ---------- Settings tab ---------- */
 
-.inst-save-bar {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  padding: 12px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  box-shadow: var(--shadow);
+/* A modal like the Modrinth App's instance settings: sidebar of panels, auto-saved. */
+.modal.inst-settings-dialog {
+  width: min(928px, 100%);
+}
+
+.inst-settings-dialog > .modal-head {
+  align-items: center;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.inst-settings-dialog > .modal-body {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.inst-settings-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.inst-settings-title strong {
+  color: var(--heading);
+  font-weight: 800;
+}
+
+.inst-settings-title .icon {
+  color: var(--muted);
+}
+
+.inst-settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  height: min(600px, calc(100vh - 150px));
+}
+
+.inst-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.inst-settings-cat {
+  padding: 14px 12px 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.inst-settings-cat:first-child {
+  padding-top: 2px;
+}
+
+.inst-settings-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inst-settings-tab:hover {
+  background: var(--panel-2);
+}
+
+.inst-settings-tab.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.inst-settings-status {
+  margin-top: auto;
+  padding: 12px 12px 2px;
+  line-height: 1.4;
+}
+
+.inst-settings-pane {
+  padding: 22px 24px 28px;
+  overflow-y: auto;
+}
+
+.inst-settings-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 760px) {
+  .inst-settings-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .inst-settings-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .inst-settings-cat,
+  .inst-settings-status {
+    display: none;
+  }
 }
 
 /* ---------- Scan dialog ---------- */

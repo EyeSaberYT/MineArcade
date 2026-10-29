@@ -28,7 +28,7 @@ import { mountConsole } from './instance/console.js';
 import { mountContent } from './instance/content.js';
 import { mountScreenshots } from './instance/screenshots.js';
 import { mountServers } from './instance/servers.js';
-import { mountSettings } from './instance/settings.js';
+import { openInstanceSettings } from './instance/settings.js';
 import { isLaunching, isRunning, revealInstanceFolder } from './instance/shared.js';
 import { mountWorlds } from './instance/worlds.js';
 
@@ -38,15 +38,19 @@ const TABS = [
   { id: 'screenshots', label: 'Screenshots', icon: 'image', mount: mountScreenshots },
   { id: 'servers', label: 'Servers', icon: 'server', mount: mountServers },
   { id: 'console', label: 'Console', icon: 'terminal', mount: mountConsole },
-  { id: 'settings', label: 'Settings', icon: 'settings', mount: mountSettings },
+  // As in the Modrinth App, Settings opens a modal over the current tab rather than replacing it.
+  { id: 'settings', label: 'Settings', icon: 'settings', modal: true },
 ];
 
 export function render(root, params) {
   const id = params.id;
-  let tab = TABS.some((t) => t.id === params.tab) ? params.tab : 'content';
+  // #/instance/:id/settings shows the Content tab with the settings modal on top.
+  const openSettingsOnLoad = params.tab === 'settings';
+  let tab = TABS.some((t) => t.id === params.tab && !t.modal) ? params.tab : 'content';
   let instance = null;
   let disposed = false;
   let tabCleanup = null;
+  let settingsModal = null;
   const offs = [];
 
   const ctx = {
@@ -60,6 +64,8 @@ export function render(root, params) {
       drawHead();
     },
     alive: () => !disposed,
+    duplicate: () => duplicate(),
+    confirmDelete: () => confirmDelete(),
   };
 
   // ---------- Header ----------
@@ -120,10 +126,23 @@ export function render(root, params) {
   function drawTabs() {
     setHtml(
       root.querySelector('[data-tabs]'),
-      TABS.map(
-        (t) => html`<button class="tab ${t.id === tab ? 'active' : ''}" data-tab="${t.id}">${icon(t.icon, 'icon-sm')} ${t.label}</button>`,
-      ),
+      TABS.map((t) => {
+        // While the modal is open, Settings is the highlighted tab.
+        const active = settingsModal ? t.id === 'settings' : t.id === tab;
+        return html`<button class="tab ${active ? 'active' : ''}" data-tab="${t.id}">${icon(t.icon, 'icon-sm')} ${t.label}</button>`;
+      }),
     );
+  }
+
+  function openSettings() {
+    if (!instance || settingsModal) return;
+    settingsModal = openInstanceSettings(ctx, {
+      onClose: () => {
+        settingsModal = null;
+        if (!disposed) drawTabs();
+      },
+    });
+    drawTabs();
   }
 
   function mountTab() {
@@ -144,6 +163,7 @@ export function render(root, params) {
   }
 
   function switchTab(next) {
+    if (TABS.find((t) => t.id === next)?.modal) return openSettings();
     if (next === tab) return;
     tab = next;
     // Keep the URL in step without re-running the router (which would reload the page).
@@ -313,6 +333,10 @@ export function render(root, params) {
     drawHead();
     drawTabs();
     mountTab();
+    if (openSettingsOnLoad) {
+      history.replaceState(null, '', `#/instance/${encodeURIComponent(id)}/${tab}`);
+      openSettings();
+    }
   }
 
   offs.push(store.on(['running', 'launching', 'settings', 'instances'], drawHead));
@@ -320,6 +344,8 @@ export function render(root, params) {
 
   return () => {
     disposed = true;
+    // Leaving the page (e.g. the rail or back button) closes the modal; it saves on close.
+    settingsModal?.close();
     offs.forEach((off) => off());
     try {
       tabCleanup?.();
