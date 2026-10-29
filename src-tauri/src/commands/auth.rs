@@ -164,28 +164,43 @@ pub async fn auth_logout(state: State<'_, AppState>, uuid: String) -> Result<Vec
     Ok(public(&store))
 }
 
+async fn stored_active(state: &AppState) -> Result<Account> {
+    let store = state.accounts.read().await;
+    store
+        .active_account()
+        .cloned()
+        .ok_or_else(|| LauncherError::Auth("No account selected. Sign in first.".into()))
+}
+
 /// Return the active account, refreshing its token when needed.
 pub async fn active_account(state: &AppState) -> Result<Account> {
-    let mut account = {
-        let store = state.accounts.read().await;
-        store.active_account().cloned()
-    };
-
-    let account = account
-        .take()
-        .ok_or_else(|| LauncherError::Auth("No account selected. Sign in first.".into()))?;
-
+    let account = stored_active(state).await?;
     if !account.is_expired() {
         return Ok(account);
     }
 
-    // Refresh and persist the new token.
-    let refreshed = microsoft::refresh_account(&state.http, config::microsoft_client_id(), &account).await?;
+    // One refresh at a time. Whoever waited for the lock re-reads the store:
+    // the refresh that just finished has usually already renewed this account.
+    let _refreshing = state.token_refresh.lock().await;
+    let account = stored_active(state).await?;
+    if !account.is_expired() {
+        return Ok(account);
+    }
+
+    log::info!("refreshing the Minecraft token for {}", account.username);
+    let refreshed = match microsoft::refresh_account(&state.http, config::microsoft_client_id(), &account).await {
+        Ok(refreshed) => refreshed,
+        Err(error) => {
+            log::warn!("couldn't refresh the token for {}: {error}", account.username);
+            return Err(error);
+        }
+    };
     {
         let mut store = state.accounts.write().await;
         store.upsert(refreshed.clone());
         store.save(&state.paths)?;
     }
+    log::info!("token for {} renewed", refreshed.username);
     Ok(refreshed)
 }
 

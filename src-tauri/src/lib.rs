@@ -37,6 +37,21 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        // Without a logger every `log::` call is dropped. Keep a few rotated
+        // files so a failed sign-in or launch leaves something to read.
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .clear_targets()
+                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
+                    path: log_dir,
+                    file_name: Some("launcher".into()),
+                }))
+                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+                .level(log::LevelFilter::Info)
+                .max_file_size(2_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())

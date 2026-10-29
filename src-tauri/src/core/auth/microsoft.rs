@@ -242,27 +242,60 @@ pub async fn poll_for_token(
     }
 }
 
+/// How many times a refresh is attempted when the connection itself fails
+/// (as the Modrinth App does): a dropped Wi-Fi packet is not a lost sign-in.
+const REFRESH_ATTEMPTS: u32 = 4;
+
 /// Exchange a refresh token for a fresh Microsoft access token.
+///
+/// Only `invalid_grant` means the sign-in is really over (revoked, expired after
+/// 90 days unused, password changed); every other failure is reported as it is,
+/// so a temporary outage doesn't look like being signed out.
 pub async fn refresh_token(
     http: &reqwest::Client,
     client_id: &str,
     refresh_token: &str,
 ) -> Result<(String, Option<String>, i64)> {
-    let res = http
-        .post(token_url())
-        .form(&[
-            ("client_id", client_id),
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token),
-            ("scope", SCOPE),
-        ])
-        .send()
-        .await?;
+    let mut attempt = 1;
+    let res = loop {
+        let sent = http
+            .post(token_url())
+            .form(&[
+                ("client_id", client_id),
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh_token),
+                ("scope", SCOPE),
+            ])
+            .send()
+            .await;
+        match sent {
+            Ok(res) => break res,
+            Err(error) if (error.is_connect() || error.is_timeout()) && attempt < REFRESH_ATTEMPTS => {
+                log::warn!("Microsoft token refresh attempt {attempt} couldn't connect: {error}");
+                tokio::time::sleep(std::time::Duration::from_millis(500 * u64::from(attempt))).await;
+                attempt += 1;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    };
 
-    if !res.status().is_success() {
-        return Err(LauncherError::Auth(
-            "Your Microsoft session expired. Please sign in again.".into(),
-        ));
+    let status = res.status();
+    if !status.is_success() {
+        let body = res.text().await.unwrap_or_default();
+        let err: Option<OAuthError> = serde_json::from_str(&body).ok();
+        // The description starts with an AADSTS code that says exactly why; log
+        // it in full, show its first line.
+        log::warn!("Microsoft token refresh failed (HTTP {status}): {body}");
+        let detail = err
+            .as_ref()
+            .map(|e| e.error_description.lines().next().unwrap_or_default().trim().to_string())
+            .filter(|d| !d.is_empty())
+            .unwrap_or_else(|| format!("HTTP {status}"));
+        return Err(LauncherError::Auth(match err.as_ref().map(|e| e.error.as_str()) {
+            Some("invalid_grant") => format!("Microsoft ended this sign-in, so please sign in again. ({detail})"),
+            Some(code) => format!("Microsoft couldn't renew the sign-in ({code}): {detail}"),
+            None => format!("Microsoft couldn't renew the sign-in: {detail}"),
+        }));
     }
 
     let token: TokenResponse = res.json().await?;

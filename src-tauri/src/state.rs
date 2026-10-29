@@ -20,6 +20,9 @@ pub struct AppState {
     pub settings: RwLock<Settings>,
     pub instances: RwLock<InstanceStore>,
     pub accounts: RwLock<AccountStore>,
+    /// Held while a Microsoft token is being refreshed, so two commands needing
+    /// a fresh token at once don't both redeem the same refresh token.
+    pub token_refresh: tokio::sync::Mutex<()>,
     /// Instances that currently have a game process running.
     pub running: RwLock<Vec<String>>,
     /// Per running instance, the channel that kills its game process.
@@ -50,6 +53,7 @@ impl AppState {
             settings: RwLock::new(settings),
             instances: RwLock::new(instances),
             accounts: RwLock::new(accounts),
+            token_refresh: tokio::sync::Mutex::new(()),
             running: RwLock::new(vec![]),
             stoppers: tokio::sync::Mutex::new(std::collections::HashMap::new()),
         })

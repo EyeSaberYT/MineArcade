@@ -35,9 +35,13 @@ pub struct Account {
     pub skin_url: Option<String>,
 }
 
+/// Tokens are renewed this many seconds before they expire, as the Modrinth App
+/// does, so a launch that spends a while downloading still starts with a valid one.
+const EXPIRY_MARGIN_SECS: i64 = 5 * 60;
+
 impl Account {
     pub fn is_expired(&self) -> bool {
-        chrono::Utc::now().timestamp() >= self.expires_at - 60
+        chrono::Utc::now().timestamp() >= self.expires_at - EXPIRY_MARGIN_SECS
     }
 
     /// The `user_type` value passed to the game.
