@@ -15,6 +15,7 @@ import {
   html,
   icon,
   instanceIcon,
+  loaderBadge,
   loaderLabel,
   openModal,
   projectTypeLabel,
@@ -415,11 +416,15 @@ export function openModpackInstallDialog(input, options = {}) {
         <span>Instance name</span>
         <input class="input" data-name maxlength="64" value="${project.title}" autofocus>
       </label>
+      <label class="field" data-game-field hidden>
+        <span>Minecraft version</span>
+        <select class="input" data-game></select>
+      </label>
       <label class="field">
         <span>Version</span>
         <select class="input" data-version disabled><option>Loading…</option></select>
       </label>
-      <p class="hint" data-version-info></p>
+      <div class="row-wrap" data-version-info style="gap:6px"></div>
       <p class="form-error" data-error></p>`,
     footer: html`
       <button class="btn btn-ghost" data-close>Cancel</button>
@@ -427,17 +432,48 @@ export function openModpackInstallDialog(input, options = {}) {
   });
 
   const nameInput = modal.body.querySelector('[data-name]');
+  const gameField = modal.body.querySelector('[data-game-field]');
+  const gameSelect = modal.body.querySelector('[data-game]');
   const select = modal.body.querySelector('[data-version]');
   const info = modal.body.querySelector('[data-version-info]');
   const errorEl = modal.body.querySelector('[data-error]');
   const createBtn = modal.foot.querySelector('[data-create]');
   let versions = [];
 
+  // The pack's own version number says nothing about the game, so every entry
+  // also names the Minecraft version and loader it installs.
+  const optionLabel = (v) =>
+    [
+      `${versionLabel(v)}${v.versionType && v.versionType !== 'release' ? ` (${v.versionType})` : ''}`,
+      v.gameVersions?.length ? `Minecraft ${gameVersionSummary(v.gameVersions, 2)}` : '',
+      v.loaders?.length ? v.loaders.map(loaderLabel).join(', ') : '',
+      v.datePublished ? relativeTime(v.datePublished) : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
   const describe = () => {
     const v = versions.find((entry) => entry.id === select.value);
-    info.textContent = v
-      ? `Minecraft ${gameVersionSummary(v.gameVersions, 2)}${v.loaders?.length ? ` · ${v.loaders.map(loaderLabel).join(', ')}` : ''}${v.datePublished ? ` · published ${relativeTime(v.datePublished)}` : ''}`
-      : '';
+    setHtml(
+      info,
+      v
+        ? html`${(v.gameVersions ?? []).length
+              ? [...v.gameVersions].reverse().map((game) => html`<span class="badge badge-mono">Minecraft ${game}</span>`)
+              : html`<span class="badge">Any Minecraft version</span>`}
+            ${(v.loaders ?? []).map((loader) => loaderBadge(loader))}
+            ${v.datePublished && html`<span class="small muted">published ${relativeTime(v.datePublished)}</span>`}`
+        : '',
+    );
+  };
+
+  /** Fill the version list, limited to one Minecraft version unless `game` is 'any'. */
+  const drawVersions = (game, preferredId) => {
+    const shown = game === 'any' ? versions : versions.filter((v) => v.gameVersions?.includes(game));
+    setHtml(select, shown.map((v) => html`<option value="${v.id}">${optionLabel(v)}</option>`));
+    const preferred =
+      shown.find((v) => v.id === preferredId) ?? shown.find((v) => v.versionType === 'release') ?? shown[0];
+    if (preferred) select.value = preferred.id;
+    describe();
   };
 
   api.modrinth
@@ -449,19 +485,18 @@ export function openModpackInstallDialog(input, options = {}) {
         setHtml(select, html`<option value="">No versions published</option>`);
         return;
       }
-      setHtml(
-        select,
-        list.map(
-          (v) =>
-            html`<option value="${v.id}">${versionLabel(v)}${v.versionType && v.versionType !== 'release' ? ` (${v.versionType})` : ''}${v.datePublished ? ` · ${relativeTime(v.datePublished)}` : ''}</option>`,
-        ),
-      );
-      const preferred =
-        list.find((v) => v.id === options.versionId) ?? list.find((v) => v.versionType === 'release') ?? list[0];
-      select.value = preferred.id;
+      // Only worth a picker when the pack is published for more than one game version.
+      const games = [...new Set(list.flatMap((v) => v.gameVersions ?? []))].sort(compareGameVersions);
+      if (games.length > 1) {
+        setHtml(
+          gameSelect,
+          html`<option value="any">All Minecraft versions</option>${games.map((game) => html`<option value="${game}">${game}</option>`)}`,
+        );
+        gameField.hidden = false;
+      }
+      drawVersions('any', options.versionId);
       select.disabled = false;
       createBtn.disabled = false;
-      describe();
     })
     .catch((error) => {
       if (modal.closed) return;
@@ -470,6 +505,7 @@ export function openModpackInstallDialog(input, options = {}) {
     });
 
   select.addEventListener('change', describe);
+  gameSelect.addEventListener('change', () => drawVersions(gameSelect.value, select.value));
 
   createBtn.addEventListener('click', async () => {
     if (busy || !select.value) return;
@@ -495,6 +531,19 @@ export function openModpackInstallDialog(input, options = {}) {
   });
 
   return modal;
+}
+
+/** Newest first: 1.21.4 before 1.21 before 1.20.6; snapshots and other odd ids last. */
+function compareGameVersions(a, b) {
+  const parts = (v) => (/^\d+(\.\d+)*$/.test(v) ? v.split('.').map(Number) : null);
+  const pa = parts(a);
+  const pb = parts(b);
+  if (!pa || !pb) return pa ? -1 : pb ? 1 : b.localeCompare(a);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const diff = (pb[i] ?? 0) - (pa[i] ?? 0);
+    if (diff) return diff;
+  }
+  return 0;
 }
 
 function normalise(input) {
