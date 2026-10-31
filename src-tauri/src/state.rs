@@ -49,8 +49,7 @@ impl AppState {
             .build()
             .map_err(crate::error::LauncherError::from)?;
 
-        let presence =
-            crate::core::discord::Presence::start(settings.discord_rich_presence, settings.discord_button());
+        let presence = crate::core::discord::Presence::start(settings.discord_rich_presence);
 
         Ok(Self {
             http,

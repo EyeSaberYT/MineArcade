@@ -151,11 +151,6 @@ function mount(root, initialPanel, close) {
             ${toggle('keepLauncherOpen', 'Keep launcher open', 'Keep MineArcade available while Minecraft is running. When off, it minimizes instead.')}
             ${toggle('discordRichPresence', 'Discord Rich Presence', 'Show the instance you’re playing on your Discord profile while Discord is open.')}
             <div class="settings-row">
-              <span class="grow"><b>Second Discord button</b><small>Shown next to “Join Discord” to people viewing your profile. Leave it blank for just one button.</small></span>
-              <input class="input settings-button-label" data-key="discordButtonLabel" value="${draft.discordButtonLabel ?? ''}" placeholder="Label" maxlength="32" spellcheck="false" aria-label="Button label">
-              <input class="input mono settings-server" data-key="discordButtonUrl" value="${draft.discordButtonUrl ?? ''}" placeholder="https://…" spellcheck="false" aria-label="Button link">
-            </div>
-            <div class="settings-row">
               <span class="grow"><b>Concurrent downloads</b><small>How many files to fetch in parallel.</small></span>
               <input class="input settings-num" type="number" min="1" max="32" data-key="concurrentDownloads" data-type="int" value="${draft.concurrentDownloads}">
             </div>
