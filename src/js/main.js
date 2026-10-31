@@ -17,7 +17,7 @@ import { revealInstanceFolder } from './pages/instance/shared.js';
 import { currentCrumb, currentRoute, navigate, onCrumb, onNavigate, route, startRouter } from './router.js';
 import { appendConsole, store } from './store.js';
 import { errorText, listen } from './tauri.js';
-import { $, $$, html, icon, initTooltips, instanceIcon, setHtml, showMenu, spinner, toast } from './ui.js';
+import { $, $$, html, icon, initTooltips, instanceIcon, raw, setHtml, showMenu, spinner, toast } from './ui.js';
 import { startUpdateCheck } from './updater.js';
 
 // ---------- Routes ----------
@@ -227,6 +227,54 @@ function mountTopBar() {
   renderActions();
 }
 
+// ---------- Window controls ----------
+
+/**
+ * The window is undecorated on Windows and Linux, so the top bar draws its own
+ * minimize / maximize / close (like the Modrinth App). macOS keeps its native
+ * traffic lights over the bar, so there the bar only leaves room for them.
+ */
+function mountWindowControls() {
+  const appWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+  if (!appWindow) return; // A plain browser (dev preview): nothing to control.
+  if (/Mac/i.test(navigator.platform || navigator.userAgent)) {
+    document.documentElement.classList.add('is-mac');
+    return;
+  }
+
+  const box = $('#window-controls');
+  const glyphs = {
+    minimize: '<path d="M1 5.5h9"/>',
+    maximize: '<rect x="1.5" y="1.5" width="8" height="8" rx="1"/>',
+    restore: '<rect x="1.5" y="3.5" width="6" height="6" rx="1"/><path d="M3.5 3.5v-1a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-1"/>',
+    close: '<path d="m1.5 1.5 8 8M9.5 1.5l-8 8"/>',
+  };
+  const glyph = (name) => raw(`<svg class="window-glyph" viewBox="0 0 11 11" aria-hidden="true">${glyphs[name]}</svg>`);
+
+  const render = (maximized) => {
+    setHtml(
+      box,
+      html`
+        <button class="window-btn" data-window="minimize" aria-label="Minimize">${glyph('minimize')}</button>
+        <button class="window-btn" data-window="maximize" aria-label="${maximized ? 'Restore' : 'Maximize'}">${glyph(maximized ? 'restore' : 'maximize')}</button>
+        <button class="window-btn is-close" data-window="close" aria-label="Close">${glyph('close')}</button>`,
+    );
+  };
+
+  box.addEventListener('click', (event) => {
+    const action = event.target.closest('[data-window]')?.dataset.window;
+    if (action === 'minimize') appWindow.minimize();
+    if (action === 'maximize') appWindow.toggleMaximize();
+    if (action === 'close') appWindow.close();
+  });
+
+  // Keep the maximize/restore glyph honest when the window is snapped or double-clicked.
+  const sync = async () => render(await appWindow.isMaximized().catch(() => false));
+  appWindow.onResized?.(sync);
+  box.hidden = false;
+  sync();
+}
+
 // ---------- Progress footer ----------
 
 function mountProgressFooter() {
@@ -329,6 +377,7 @@ async function boot() {
   initTooltips();
   mountRail();
   mountTopBar();
+  mountWindowControls();
   mountProgressFooter();
   initDrop();
   await listenToBackend();

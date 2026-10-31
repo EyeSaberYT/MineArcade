@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "MineArcade",
+        "width": 1240,
+        "height": 780,
+        "minWidth": 960,
+        "minHeight": 640,
+        "center": true,
+        "theme": "Dark",
+        "dragDropEnabled": true,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ]
+  }
+}

@@ -337,10 +337,13 @@ code {
   opacity: 0.25;
 }
 
+/* Fills the bar's free space, so that space drags the window. */
 .crumbs {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 4px;
+  align-self: stretch;
   min-width: 0;
   overflow: hidden;
   font-size: 14px;
@@ -367,8 +370,51 @@ code {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
   flex: none;
+}
+
+/* Minimize / maximize / close, flush with the window's top-right corner. */
+.window-controls {
+  display: flex;
+  align-self: stretch;
+  margin-right: -14px;
+  flex: none;
+}
+
+.window-btn {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: default;
+  transition: background 0.1s, color 0.1s;
+}
+
+.window-btn:hover {
+  background: var(--panel-2);
+  color: var(--heading);
+}
+
+.window-btn.is-close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+.window-glyph {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+/* macOS draws its traffic lights over the bar's top-left corner. */
+.is-mac .topbar {
+  padding-left: 84px;
 }
 
 .run-pill {

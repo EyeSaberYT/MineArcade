@@ -14,7 +14,9 @@
   <body>
     <!-- Laid out like the Modrinth App: a top bar and an icon rail frame the page panel. -->
     <div class="app">
-      <header class="topbar">
+      <!-- The window has no OS title bar: this bar moves it (data-tauri-drag-region,
+           double-click maximizes) and main.js adds minimize / maximize / close. -->
+      <header class="topbar" data-tauri-drag-region>
         <a class="topbar-brand" href="#/" aria-label="MineArcade home">
           <img class="brand-logo" src="assets/logo.png" alt="" />
           <span class="brand-name">MineArcade</span>
@@ -27,8 +29,9 @@
             <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></svg>
           </button>
         </div>
-        <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+        <nav class="crumbs" id="crumbs" aria-label="Breadcrumb" data-tauri-drag-region></nav>
         <div class="topbar-actions" id="topbar-actions"></div>
+        <div class="window-controls" id="window-controls" hidden></div>
       </header>
 
       <aside class="rail">
