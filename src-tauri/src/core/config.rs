@@ -37,11 +37,26 @@ pub struct Settings {
     /// Show what you're playing on your Discord profile.
     #[serde(default = "default_true")]
     pub discord_rich_presence: bool,
+    /// The second Rich Presence button (the first is always "Join Discord").
+    /// A blank label or link leaves it out.
+    #[serde(default = "default_discord_button_label")]
+    pub discord_button_label: String,
+    #[serde(default = "default_discord_button_url")]
+    pub discord_button_url: String,
 }
 
 fn default_true() -> bool {
     true
 }
+
+fn default_discord_button_label() -> String {
+    "Get MineArcade".into()
+}
+
+fn default_discord_button_url() -> String {
+    "https://github.com/EyeSaberYT/MineArcade/releases/latest".into()
+}
+
 
 /// The MineArcade network.
 pub const DEFAULT_SERVER_ADDRESS: &str = "play.minearcade.org";
@@ -73,6 +88,8 @@ impl Default for Settings {
             modrinth_api_url: "https://api.modrinth.com/v2".into(),
             featured_server: default_featured_server(),
             discord_rich_presence: true,
+            discord_button_label: default_discord_button_label(),
+            discord_button_url: default_discord_button_url(),
         }
     }
 }
@@ -103,6 +120,11 @@ pub fn microsoft_client_id() -> &'static str {
 }
 
 impl Settings {
+    /// The custom Rich Presence button, if it's filled in correctly.
+    pub fn discord_button(&self) -> Option<crate::core::discord::CustomButton> {
+        crate::core::discord::CustomButton::new(&self.discord_button_label, &self.discord_button_url)
+    }
+
     pub fn load(paths: &AppPaths) -> Result<Self> {
         Ok(read_json(&paths.config_file())?.unwrap_or_default())
     }

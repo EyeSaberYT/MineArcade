@@ -18,7 +18,38 @@ const RETRY_EVERY: Duration = Duration::from_secs(15);
 /// Asset key of the logo uploaded under Rich Presence → Art Assets in the
 /// Discord application.
 const LARGE_IMAGE: &str = "minearcade-discord-logo";
-const DOWNLOAD_URL: &str = "https://github.com/EyeSaberYT/MineArcade/releases/latest";
+/// The first of the two buttons Discord allows; always shown.
+const DISCORD_INVITE: (&str, &str) = ("Join Discord", "https://discord.gg/5D7DrptJ75");
+/// Discord rejects button labels longer than this.
+const MAX_LABEL_CHARS: usize = 32;
+const MAX_URL_CHARS: usize = 512;
+
+/// The second, user-configurable button (Settings → General).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomButton {
+    pub label: String,
+    pub url: String,
+}
+
+impl CustomButton {
+    /// A button Discord will accept, or `None` (left out) when the label is
+    /// blank or the link isn't an http(s) URL.
+    pub fn new(label: &str, url: &str) -> Option<Self> {
+        let label: String = label.trim().chars().take(MAX_LABEL_CHARS).collect();
+        let url = url.trim();
+        let web = url.starts_with("https://") || url.starts_with("http://");
+        (!label.is_empty() && web && url.len() <= MAX_URL_CHARS).then(|| Self { label, url: url.to_string() })
+    }
+}
+
+/// The buttons under the presence: Join Discord, then the custom one if set.
+fn buttons(custom: Option<&CustomButton>) -> Vec<(String, String)> {
+    let mut list = vec![(DISCORD_INVITE.0.to_string(), DISCORD_INVITE.1.to_string())];
+    if let Some(button) = custom {
+        list.push((button.label.clone(), button.url.clone()));
+    }
+    list
+}
 
 /// The "MineArcade" application on the Discord Developer Portal (IDs are
 /// public). Build with `MINEARCADE_DISCORD_APP_ID=<id>` to swap it; an empty
@@ -58,7 +89,7 @@ impl Game {
 }
 
 enum Message {
-    Enabled(bool),
+    Options { enabled: bool, custom: Option<CustomButton> },
     Started(Game),
     Stopped(String),
 }
@@ -71,7 +102,7 @@ pub struct Presence {
 
 impl Presence {
     /// Start the presence thread (a no-op handle when no app ID is built in).
-    pub fn start(enabled: bool) -> Self {
+    pub fn start(enabled: bool, custom: Option<CustomButton>) -> Self {
         let id = app_id().trim();
         if id.is_empty() {
             log::info!("Discord Rich Presence is off: no application ID in this build");
@@ -81,7 +112,7 @@ impl Presence {
         let id = id.to_string();
         let spawned = std::thread::Builder::new()
             .name("discord-presence".into())
-            .spawn(move || run(&id, enabled, rx));
+            .spawn(move || run(&id, enabled, custom, rx));
         match spawned {
             Ok(_) => Self { tx: Some(tx) },
             Err(error) => {
@@ -91,8 +122,9 @@ impl Presence {
         }
     }
 
-    pub fn set_enabled(&self, enabled: bool) {
-        self.send(Message::Enabled(enabled));
+    /// Apply the Settings: on/off and the custom second button.
+    pub fn set_options(&self, enabled: bool, custom: Option<CustomButton>) {
+        self.send(Message::Options { enabled, custom });
     }
 
     pub fn game_started(&self, game: Game) {
@@ -134,7 +166,7 @@ fn lines(game: Option<&Game>) -> (String, String) {
     }
 }
 
-fn run(app_id: &str, mut enabled: bool, rx: mpsc::Receiver<Message>) {
+fn run(app_id: &str, mut enabled: bool, mut custom: Option<CustomButton>, rx: mpsc::Receiver<Message>) {
     let launcher_started = chrono::Utc::now().timestamp();
     // Most recently started last; the newest game is the one shown.
     let mut games: Vec<Game> = Vec::new();
@@ -157,12 +189,13 @@ fn run(app_id: &str, mut enabled: bool, rx: mpsc::Receiver<Message>) {
             if let Some(connected) = client.as_mut() {
                 let game = games.last();
                 let (details, state) = lines(game);
+                let links = buttons(custom.as_ref());
                 let activity = Activity::new()
                     .details(details)
                     .state(state)
                     .timestamps(Timestamps::new().start(game.map_or(launcher_started, |g| g.started)))
                     .assets(Assets::new().large_image(LARGE_IMAGE).large_text("MineArcade"))
-                    .buttons(vec![Button::new("Get MineArcade", DOWNLOAD_URL)]);
+                    .buttons(links.iter().map(|(label, url)| Button::new(label.as_str(), url.as_str())).collect());
                 if let Err(error) = connected.set_activity(activity) {
                     // Discord quit or restarted: drop the pipe and reconnect next round.
                     log::info!("lost the Discord connection: {error}");
@@ -183,7 +216,10 @@ fn run(app_id: &str, mut enabled: bool, rx: mpsc::Receiver<Message>) {
             (false, _) => Duration::from_secs(3600),
         };
         match rx.recv_timeout(wait) {
-            Ok(Message::Enabled(value)) => enabled = value,
+            Ok(Message::Options { enabled: on, custom: button }) => {
+                enabled = on;
+                custom = button;
+            }
             Ok(Message::Started(game)) => {
                 games.retain(|g| g.instance_id != game.instance_id);
                 games.push(game);
@@ -213,6 +249,17 @@ mod tests {
             server: server.map(Into::into),
             started: 0,
         }
+    }
+
+    #[test]
+    fn join_discord_comes_first_and_the_custom_button_is_optional() {
+        assert_eq!(buttons(None), vec![("Join Discord".into(), "https://discord.gg/5D7DrptJ75".into())]);
+        let custom = CustomButton::new("  Get MineArcade ", " https://example.com/dl ").unwrap();
+        assert_eq!(buttons(Some(&custom))[1], ("Get MineArcade".into(), "https://example.com/dl".into()));
+        // Blank labels and non-web links are dropped; long labels are cut to Discord's limit.
+        assert_eq!(CustomButton::new("", "https://example.com"), None);
+        assert_eq!(CustomButton::new("Site", "javascript:alert(1)"), None);
+        assert_eq!(CustomButton::new(&"x".repeat(40), "https://example.com").unwrap().label.len(), 32);
     }
 
     #[test]

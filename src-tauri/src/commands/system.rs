@@ -19,7 +19,7 @@ pub async fn settings_save(state: State<'_, AppState>, settings: Settings) -> Re
         *current = settings.clone();
     }
     settings.save(&state.paths)?;
-    state.presence.set_enabled(settings.discord_rich_presence);
+    state.presence.set_options(settings.discord_rich_presence, settings.discord_button());
     Ok(settings)
 }
 

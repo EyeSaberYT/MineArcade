@@ -11,7 +11,8 @@
 //   PublicAccount { uuid, username, kind, skinUrl, active }
 //   Settings { javaPath, defaultMemoryMin, defaultMemoryMax, defaultJvmArgs[], concurrentDownloads,
 //              checkUpdatesOnStart, showSnapshots, closeOnLaunch, keepLauncherOpen,
-//              theme: 'dark'|'light'|'system', modrinthApiUrl, featuredServer, discordRichPresence }
+//              theme: 'dark'|'light'|'system', modrinthApiUrl, featuredServer, discordRichPresence,
+//              discordButtonLabel, discordButtonUrl }
 //   Progress { stage, label, current, total, filesDone, filesTotal, finished }
 import { invoke } from './tauri.js';
 
