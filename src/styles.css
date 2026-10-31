@@ -1215,6 +1215,12 @@ input[type='checkbox'] {
   image-rendering: pixelated;
 }
 
+/* Face and hat layer of the skin texture; see playerHead() in ui.js. */
+.avatar-skin {
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));

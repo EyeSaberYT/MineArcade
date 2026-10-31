@@ -327,10 +327,28 @@ export function instanceIcon({ icon: value, name, id }, size = 48) {
   return fallback;
 }
 
-/** A player's head: rendered by mc-heads.net, falling back to initials. */
+/**
+ * Only Mojang's texture server, since the url ends up in a CSS `url()`. The
+ * optional `?t=<hex>` is the cache-buster core/skin.rs adds after an upload.
+ */
+const SKIN_URL = /^https:\/\/textures\.minecraft\.net\/texture\/[0-9a-f]+(?:[?&]t=[0-9a-f]+)*$/i;
+
+/**
+ * A player's head, cut straight from their skin texture: the face (8,8) with
+ * the hat layer (40,8) on top, each 8×8 skin pixels scaled to `size`. The skin
+ * url comes from Mojang at sign-in and on every token refresh, so it follows
+ * skin changes, unlike mc-heads.net, which caches each size separately and
+ * could keep showing Steve. mc-heads.net is only the fallback when no skin url
+ * is known; initials are the last resort.
+ */
 export function playerHead(account, size = 36) {
   const style = `width:${size}px;height:${size}px`;
   const fallback = html`<div class="avatar" style="${style}">${initials(account?.username)}</div>`;
+  const skin = account?.skinUrl;
+  if (skin && SKIN_URL.test(skin)) {
+    const layer = `url("${skin}")`;
+    return html`<div class="avatar avatar-skin" role="img" aria-label="${account.username}" style="${style};background-image:${layer},${layer};background-size:${size * 8}px auto;background-position:-${size * 5}px -${size}px,-${size}px -${size}px"></div>`;
+  }
   if (!account?.uuid) return fallback;
   const src = `https://mc-heads.net/avatar/${encodeURIComponent(account.uuid)}/${size * 2}`;
   return html`<div class="avatar" style="${style}"><img src="${src}" alt="" data-fallback="${String(fallback)}"></div>`;
