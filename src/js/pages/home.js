@@ -1,4 +1,5 @@
 // Home: the MineArcade server hero, "continue playing", stats and recent instances.
+import * as api from '../api.js';
 import {
   featuredServer,
   joinFeaturedServer,
@@ -10,6 +11,7 @@ import { instanceCard, wireInstanceList } from '../components/instance-card.js';
 import { openNewInstanceDialog } from '../dialogs/new-instance.js';
 import { navigate } from '../router.js';
 import { prefs, store } from '../store.js';
+import { fileSrc } from '../tauri.js';
 import {
   emptyState,
   formatDuration,
@@ -17,18 +19,47 @@ import {
   icon,
   instanceIcon,
   loaderBadge,
+  loaderLabel,
   relativeTime,
   setHtml,
+  showMenu,
   spinner,
 } from '../ui.js';
 
+/** The instance the hero's Join button uses: the one picked with ▾, else the most recent. */
+function heroInstance() {
+  const picked = prefs.get('home.heroInstance', null);
+  return store.state.instances.find((i) => i.id === picked) ?? spotlightInstance();
+}
+
+/** Newest screenshot of the hero instance (then of any instance), as backdrop art. */
+async function findHeroShot(preferred) {
+  const order = [preferred, ...store.state.instances.filter((i) => i.id !== preferred?.id)].filter(Boolean).slice(0, 6);
+  for (const instance of order) {
+    try {
+      const list = (await api.screenshots.list(instance.id)).screenshots ?? [];
+      const newest = [...list].sort((a, b) => new Date(b.taken ?? 0) - new Date(a.taken ?? 0))[0];
+      if (newest?.path) return fileSrc(newest.path);
+    } catch {
+      // No screenshots folder yet: try the next instance.
+    }
+  }
+  return null;
+}
+
 export function render(root) {
+  let heroShot = null;
+  let heroShotFor = null;
+
   const draw = () => {
     const instances = store.state.instances;
     const spotlight = spotlightInstance();
+    const hero = heroInstance();
     const server = featuredServer();
     const running = spotlight && store.state.running.has(spotlight.id);
     const launching = spotlight && store.state.launching.has(spotlight.id);
+    const heroRunning = hero && store.state.running.has(hero.id);
+    const heroLaunching = hero && store.state.launching.has(hero.id);
     const runningCount = instances.filter((i) => store.state.running.has(i.id)).length;
     const modCount = instances.reduce((sum, i) => sum + i.modCount, 0);
     const guideDismissed = prefs.get('home.guideDismissed', false);
@@ -48,22 +79,24 @@ export function render(root) {
         </header>
 
         ${server &&
-        html`<section class="arcade-hero">
-          <div class="arcade-hero-pixels" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        html`<section class="arcade-hero ${heroShot ? 'has-shot' : ''}" style="${heroShot ? `--hero-shot:url("${heroShot}")` : ''}">
+          ${!heroShot && html`<div class="arcade-hero-pixels" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>`}
           <div class="arcade-hero-body">
             <p class="eyebrow">Insert coin to continue</p>
             <h2>Play on <span>MineArcade</span></h2>
             <p class="arcade-hero-addr">${icon('server', 'icon-sm')} ${server}</p>
-            <div class="row-wrap" style="margin-top:20px">
-              ${spotlight
-                ? running
-                  ? html`<button class="btn btn-play btn-lg is-running" data-stop="${spotlight.id}">${icon('square')} STOP</button>`
-                  : html`<button class="btn btn-play btn-lg" data-join="${spotlight.id}" ${launching ? 'disabled' : ''}>
-                      ${launching ? spinner() : icon('play')} ${launching ? 'STARTING…' : 'JOIN SERVER'}
+            <p class="arcade-hero-desc">Jump straight onto the server with your instance. Pick a different one with the arrow.</p>
+            <div class="hero-launch ${heroRunning ? 'is-running' : ''}">
+              ${hero
+                ? heroRunning
+                  ? html`<button class="hero-launch-main" data-stop="${hero.id}">${icon('square')}<span>STOP<small>${hero.name} is running</small></span></button>`
+                  : html`<button class="hero-launch-main" data-join="${hero.id}" ${heroLaunching ? 'disabled' : ''}>
+                      ${heroLaunching ? spinner() : icon('play')}
+                      <span>${heroLaunching ? 'STARTING…' : 'JOIN SERVER'}<small>${hero.name} · ${loaderLabel(hero.loader)} ${hero.gameVersion}</small></span>
                     </button>`
-                : html`<button class="btn btn-play btn-lg" data-setup>${icon('sparkles')} SET UP & PLAY</button>`}
-              ${spotlight &&
-              html`<span class="small muted">with <a data-go="/instance/${spotlight.id}">${spotlight.name}</a> · ${spotlight.gameVersion}</span>`}
+                : html`<button class="hero-launch-main" data-setup>${icon('sparkles')}<span>SET UP &amp; PLAY<small>Creates an instance for you</small></span></button>`}
+              ${hero && instances.length > 1 && !heroRunning &&
+              html`<button class="hero-launch-pick" data-pick-hero aria-label="Choose which instance joins" data-tip="Choose instance">${icon('chevron-down')}</button>`}
             </div>
           </div>
         </section>`}
@@ -142,6 +175,17 @@ export function render(root) {
           </div>
         </section>`}`,
     );
+
+    // Look up backdrop art once per hero instance; redraw when it arrives.
+    const heroId = hero?.id ?? '';
+    if (heroId !== heroShotFor) {
+      heroShotFor = heroId;
+      findHeroShot(hero).then((src) => {
+        if (heroShotFor !== heroId || src === heroShot) return;
+        heroShot = src;
+        draw();
+      });
+    }
   };
 
   root.addEventListener('click', (event) => {
@@ -152,6 +196,28 @@ export function render(root) {
     if (target.closest('[data-dismiss-guide]')) {
       prefs.set('home.guideDismissed', true);
       return draw();
+    }
+    const pick = target.closest('[data-pick-hero]');
+    if (pick) {
+      const current = heroInstance();
+      return showMenu(
+        pick,
+        [
+          { header: 'Join with' },
+          ...[...store.state.instances]
+            .sort((a, b) => new Date(b.lastPlayed ?? 0) - new Date(a.lastPlayed ?? 0))
+            .map((instance) => ({
+              label: `${instance.name} · ${loaderLabel(instance.loader)} ${instance.gameVersion}`,
+              leading: String(instanceIcon(instance, 22)),
+              trail: instance.id === current?.id ? 'Selected' : '',
+              onSelect: () => {
+                prefs.set('home.heroInstance', instance.id);
+                draw();
+              },
+            })),
+        ],
+        { align: 'end' },
+      );
     }
     const join = target.closest('[data-join]');
     if (join) return joinFeaturedServer(join.dataset.join);
