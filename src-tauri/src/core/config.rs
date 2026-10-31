@@ -34,6 +34,13 @@ pub struct Settings {
     /// instance gets in its in-game server list.
     #[serde(default = "default_featured_server")]
     pub featured_server: String,
+    /// Show what you're playing on your Discord profile.
+    #[serde(default = "default_true")]
+    pub discord_rich_presence: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// The MineArcade network.
@@ -65,6 +72,7 @@ impl Default for Settings {
             theme: Theme::Dark,
             modrinth_api_url: "https://api.modrinth.com/v2".into(),
             featured_server: default_featured_server(),
+            discord_rich_presence: true,
         }
     }
 }

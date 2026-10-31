@@ -56,6 +56,8 @@ fastnbt = "2"
 flate2 = "1"
 dirs = "5"
 log = "0.4"
+# Talks to the local Discord app over its IPC pipe for Rich Presence.
+discord-rich-presence = "1.1"
 walkdir = "2"
 # Reads the Modrinth App's SQLite database (app.db) during launcher import;
 # bundled keeps users off a system SQLite install.

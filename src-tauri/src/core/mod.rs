@@ -7,6 +7,7 @@ pub mod auth;
 pub mod backups;
 pub mod cfpack;
 pub mod config;
+pub mod discord;
 pub mod download;
 pub mod import;
 pub mod instance;

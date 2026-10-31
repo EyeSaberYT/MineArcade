@@ -27,6 +27,8 @@ pub struct AppState {
     pub running: RwLock<Vec<String>>,
     /// Per running instance, the channel that kills its game process.
     pub stoppers: tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<()>>>,
+    /// Discord Rich Presence (a no-op without an application ID).
+    pub presence: crate::core::discord::Presence,
 }
 
 impl AppState {
@@ -47,6 +49,8 @@ impl AppState {
             .build()
             .map_err(crate::error::LauncherError::from)?;
 
+        let presence = crate::core::discord::Presence::start(settings.discord_rich_presence);
+
         Ok(Self {
             http,
             paths,
@@ -56,6 +60,7 @@ impl AppState {
             token_refresh: tokio::sync::Mutex::new(()),
             running: RwLock::new(vec![]),
             stoppers: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            presence,
         })
     }
 

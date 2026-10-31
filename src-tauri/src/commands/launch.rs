@@ -53,6 +53,7 @@ pub async fn launch_instance(
 
     // Track it as running until the process exits.
     state.running.write().await.push(id.clone());
+    state.presence.game_started(crate::core::discord::Game::from_instance(&instance));
     {
         let mut store = state.instances.write().await;
         if let Ok(entry) = store.get_mut(&id) {
@@ -128,6 +129,7 @@ pub async fn launch_logs(
 pub async fn launch_mark_stopped(state: State<'_, AppState>, id: String) -> Result<()> {
     state.running.write().await.retain(|entry| entry != &id);
     state.stoppers.lock().await.remove(&id);
+    state.presence.game_stopped(&id);
     Ok(())
 }
 
