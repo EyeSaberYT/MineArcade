@@ -17,13 +17,14 @@ use super::instance::{Instance, LoaderKind, QuickPlay};
 const RETRY_EVERY: Duration = Duration::from_secs(15);
 /// Asset key of the logo uploaded under Rich Presence → Art Assets in the
 /// Discord application.
-const LARGE_IMAGE: &str = "logo";
+const LARGE_IMAGE: &str = "minearcade-discord-logo";
 const DOWNLOAD_URL: &str = "https://github.com/EyeSaberYT/MineArcade/releases/latest";
 
-/// Discord application ID: build with `MINEARCADE_DISCORD_APP_ID=<id>` to swap
-/// it. Empty turns Rich Presence off entirely.
+/// The "MineArcade" application on the Discord Developer Portal (IDs are
+/// public). Build with `MINEARCADE_DISCORD_APP_ID=<id>` to swap it; an empty
+/// value turns Rich Presence off entirely.
 pub fn app_id() -> &'static str {
-    option_env!("MINEARCADE_DISCORD_APP_ID").unwrap_or("")
+    option_env!("MINEARCADE_DISCORD_APP_ID").unwrap_or("1566135647021043893")
 }
 
 /// What one running game shows.
