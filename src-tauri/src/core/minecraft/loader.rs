@@ -308,7 +308,7 @@ async fn run_installer(
 
     // The installer is a plain Java program. `--installClient <dir>` mirrors
     // what the official launcher does when you double-click it.
-    let output = tokio::process::Command::new(java)
+    let output = crate::core::no_console(&mut tokio::process::Command::new(java))
         .arg("-jar")
         .arg(&installer)
         .arg("--installClient")

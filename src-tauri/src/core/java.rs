@@ -116,7 +116,7 @@ pub async fn probe(path: &Path, source: &str) -> Option<JavaRuntime> {
         return None;
     }
 
-    let output = tokio::process::Command::new(path)
+    let output = super::no_console(&mut tokio::process::Command::new(path))
         .arg("-version")
         .output()
         .await

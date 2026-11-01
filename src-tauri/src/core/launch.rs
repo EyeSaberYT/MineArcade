@@ -224,11 +224,7 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
         command.env(key, value);
     }
 
-    #[cfg(windows)]
-    {
-        // Don't pop up a console window for the game process.
-        command.creation_flags(0x0800_0000);
-    }
+    super::no_console(&mut command);
 
     let mut child = command
         .spawn()
