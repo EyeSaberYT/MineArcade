@@ -1,6 +1,6 @@
 [package]
 name = "minearcade"
-version = "0.3.12"
+version = "0.3.13"
 description = "MineArcade - the official MineArcade Minecraft launcher"
 authors = ["MineArcade"]
 edition = "2021"
