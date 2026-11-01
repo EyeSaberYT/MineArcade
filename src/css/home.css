@@ -11,23 +11,16 @@
   padding: 36px 40px;
   border: 1px solid var(--line);
   border-radius: 20px;
+  /* Carrot Estate on the MineArcade server. The image is zoomed to 140% and
+     shifted right (a negative x percentage moves a larger-than-box image
+     rightwards) so its sign sits beside the title, not behind it; the text
+     side is solid dark where the image's left edge would show. */
   background:
-    radial-gradient(circle at 82% 18%, rgba(255, 61, 242, 0.38), transparent 45%),
-    radial-gradient(circle at 12% 95%, rgba(45, 226, 230, 0.28), transparent 50%),
-    linear-gradient(135deg, #1d1550, #0d0b22);
+    linear-gradient(90deg, #0a0912 0%, #0a0912 22%, rgba(10, 9, 18, 0.75) 36%, rgba(10, 9, 18, 0.1) 60%, transparent 100%),
+    linear-gradient(0deg, rgba(10, 9, 18, 0.45) 0%, transparent 40%),
+    url('../assets/hero.jpg') -47.5% 33% / 140% auto no-repeat,
+    #0a0912;
   color: #ecebff;
-}
-
-/* With a screenshot of your own world behind it, faded on the text side. */
-.arcade-hero.has-shot {
-  background:
-    linear-gradient(90deg, rgba(10, 9, 18, 0.94) 0%, rgba(10, 9, 18, 0.7) 45%, rgba(10, 9, 18, 0.15) 100%),
-    var(--hero-shot) center / cover no-repeat,
-    #0d0b22;
-}
-
-.arcade-hero.has-shot::before {
-  display: none;
 }
 
 .arcade-hero-desc {
@@ -112,19 +105,6 @@
   color: #ffffff;
 }
 
-.arcade-hero::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
-  background-size: 26px 26px;
-  -webkit-mask-image: linear-gradient(to bottom, black, transparent 90%);
-  mask-image: linear-gradient(to bottom, black, transparent 90%);
-  pointer-events: none;
-}
-
 .arcade-hero-body {
   position: relative;
   max-width: 640px;
@@ -180,27 +160,6 @@
 
 .arcade-hero :focus-visible {
   outline-color: #2de2e6;
-}
-
-.arcade-hero-pixels i {
-  position: absolute;
-  width: 26px;
-  height: 26px;
-  border-radius: 3px;
-  opacity: 0.85;
-  animation: float 6s ease-in-out infinite;
-}
-
-.arcade-hero-pixels i:nth-child(1) { right: 12%; top: 22%; background: #ff3df2; }
-.arcade-hero-pixels i:nth-child(2) { right: 7%; top: 55%; width: 18px; height: 18px; background: #2de2e6; animation-delay: -1s; }
-.arcade-hero-pixels i:nth-child(3) { right: 21%; top: 66%; width: 14px; height: 14px; background: #ffd23f; animation-delay: -2s; }
-.arcade-hero-pixels i:nth-child(4) { right: 27%; top: 16%; width: 12px; height: 12px; background: #2de2e6; animation-delay: -3s; }
-.arcade-hero-pixels i:nth-child(5) { right: 4%; top: 14%; width: 16px; height: 16px; background: #ffd23f; animation-delay: -4s; }
-.arcade-hero-pixels i:nth-child(6) { right: 16%; top: 42%; width: 10px; height: 10px; background: #3dff8b; animation-delay: -1.5s; }
-
-@keyframes float {
-  0%, 100% { transform: translateY(0) rotate(0); }
-  50% { transform: translateY(-10px) rotate(8deg); }
 }
 
 /* ---------- Getting-started guide ---------- */

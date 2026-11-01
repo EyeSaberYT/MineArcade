@@ -1,5 +1,4 @@
 // Home: the MineArcade server hero, "continue playing", stats and recent instances.
-import * as api from '../api.js';
 import {
   featuredServer,
   joinFeaturedServer,
@@ -11,7 +10,6 @@ import { instanceCard, wireInstanceList } from '../components/instance-card.js';
 import { openNewInstanceDialog } from '../dialogs/new-instance.js';
 import { navigate } from '../router.js';
 import { prefs, store } from '../store.js';
-import { fileSrc } from '../tauri.js';
 import {
   emptyState,
   formatDuration,
@@ -32,25 +30,7 @@ function heroInstance() {
   return store.state.instances.find((i) => i.id === picked) ?? spotlightInstance();
 }
 
-/** Newest screenshot of the hero instance (then of any instance), as backdrop art. */
-async function findHeroShot(preferred) {
-  const order = [preferred, ...store.state.instances.filter((i) => i.id !== preferred?.id)].filter(Boolean).slice(0, 6);
-  for (const instance of order) {
-    try {
-      const list = (await api.screenshots.list(instance.id)).screenshots ?? [];
-      const newest = [...list].sort((a, b) => new Date(b.taken ?? 0) - new Date(a.taken ?? 0))[0];
-      if (newest?.path) return fileSrc(newest.path);
-    } catch {
-      // No screenshots folder yet: try the next instance.
-    }
-  }
-  return null;
-}
-
 export function render(root) {
-  let heroShot = null;
-  let heroShotFor = null;
-
   const draw = () => {
     const instances = store.state.instances;
     const spotlight = spotlightInstance();
@@ -79,8 +59,7 @@ export function render(root) {
         </header>
 
         ${server &&
-        html`<section class="arcade-hero ${heroShot ? 'has-shot' : ''}" style="${heroShot ? `--hero-shot:url("${heroShot}")` : ''}">
-          ${!heroShot && html`<div class="arcade-hero-pixels" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>`}
+        html`<section class="arcade-hero">
           <div class="arcade-hero-body">
             <p class="eyebrow">Insert coin to continue</p>
             <h2>Play on <span>MineArcade</span></h2>
@@ -175,17 +154,6 @@ export function render(root) {
           </div>
         </section>`}`,
     );
-
-    // Look up backdrop art once per hero instance; redraw when it arrives.
-    const heroId = hero?.id ?? '';
-    if (heroId !== heroShotFor) {
-      heroShotFor = heroId;
-      findHeroShot(hero).then((src) => {
-        if (heroShotFor !== heroId || src === heroShot) return;
-        heroShot = src;
-        draw();
-      });
-    }
   };
 
   root.addEventListener('click', (event) => {

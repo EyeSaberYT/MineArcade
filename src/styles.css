@@ -152,7 +152,6 @@ textarea {
 
 /* Decorative motion only: spinners and progress bars keep moving. */
 @media (prefers-reduced-motion: reduce) {
-  .arcade-hero-pixels i,
   .modal,
   .modal-backdrop,
   .menu,
