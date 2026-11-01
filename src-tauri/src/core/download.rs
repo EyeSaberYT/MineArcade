@@ -57,6 +57,9 @@ impl Progress {
 /// Callback used to stream [`Progress`] to the UI. Cheap to clone.
 pub type ProgressSink = Arc<dyn Fn(Progress) + Send + Sync>;
 
+/// Minimum time between progress snapshots from one batch download.
+const PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// A no-op sink for callers that don't care about progress.
 pub fn silent() -> ProgressSink {
     Arc::new(|_| {})
@@ -75,6 +78,10 @@ pub struct DownloadSpec {
     pub label: Option<String>,
     /// Extra HTTP headers to send with the request (e.g., `x-api-key`).
     pub headers: Vec<(String, String)>,
+    /// Accept an existing file of the expected size without re-hashing it.
+    /// For content-addressed stores (game assets, named by their hash) where
+    /// re-reading hundreds of MB on every launch costs far more than it finds.
+    pub quick_verify: bool,
 }
 
 impl DownloadSpec {
@@ -86,7 +93,13 @@ impl DownloadSpec {
             size: 0,
             label: None,
             headers: vec![],
+            quick_verify: false,
         }
+    }
+
+    pub fn with_quick_verify(mut self) -> Self {
+        self.quick_verify = true;
+        self
     }
 
     pub fn with_sha1(mut self, sha1: impl Into<String>) -> Self {
@@ -176,7 +189,12 @@ pub async fn download_one(
     spec: &DownloadSpec,
     on_bytes: &(dyn Fn(u64) + Send + Sync),
 ) -> Result<bool> {
-    if is_valid(&spec.dest, spec.sha1.as_deref()).await {
+    let already_there = if spec.quick_verify && spec.size > 0 {
+        std::fs::metadata(&spec.dest).is_ok_and(|meta| meta.len() == spec.size)
+    } else {
+        is_valid(&spec.dest, spec.sha1.as_deref()).await
+    };
+    if already_there {
         return Ok(false);
     }
 
@@ -274,6 +292,24 @@ pub async fn download_many(
 
     let total_bytes: u64 = specs.iter().map(|s| s.size).sum();
     let files_total = specs.len();
+
+    // Every chunk of every file used to emit an event: thousands per second
+    // across 5,000 assets, which swamped the webview so the bar stopped
+    // moving. Send at most one snapshot per interval; the final one below
+    // always goes out.
+    let raw_sink = sink;
+    let final_sink = raw_sink.clone();
+    let last_emit = Arc::new(std::sync::Mutex::new(None::<std::time::Instant>));
+    let sink: ProgressSink = Arc::new(move |progress: Progress| {
+        let now = std::time::Instant::now();
+        let mut last = last_emit.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if last.is_some_and(|at| now.duration_since(at) < PROGRESS_INTERVAL) {
+            return;
+        }
+        *last = Some(now);
+        drop(last);
+        raw_sink(progress);
+    });
     let downloaded = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let files_done = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let skipped = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -357,7 +393,7 @@ pub async fn download_many(
     report.skipped = skipped.load(std::sync::atomic::Ordering::Relaxed) as usize;
     report.bytes = bytes.load(std::sync::atomic::Ordering::Relaxed);
 
-    sink(Progress {
+    final_sink(Progress {
         stage: stage.into(),
         label: format!("Finished {files_total} files"),
         current: report.bytes,
@@ -387,4 +423,40 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
         )));
     }
     Ok(res.json::<T>().await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn present_files_are_counted_and_progress_is_throttled() {
+        let dir = std::env::temp_dir().join(format!("minearcade-dl-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // 300 files already on disk at the expected size: nothing is fetched
+        // (the URL is unreachable on purpose) and no file is re-hashed.
+        let specs: Vec<DownloadSpec> = (0..300)
+            .map(|i| {
+                let dest = dir.join(format!("asset-{i}"));
+                std::fs::write(&dest, b"0123456789").unwrap();
+                DownloadSpec::new("http://127.0.0.1:9/never", dest)
+                    .with_sha1("does-not-matter")
+                    .with_size(10)
+                    .with_quick_verify()
+            })
+            .collect();
+
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<Progress>::new()));
+        let record = seen.clone();
+        let sink: ProgressSink = Arc::new(move |p| record.lock().unwrap().push(p));
+        let report = download_many(reqwest::Client::new(), specs, 8, "download", sink).await.unwrap();
+
+        let events = seen.lock().unwrap();
+        assert_eq!(report.skipped, 300);
+        assert!(events.len() < 20, "{} progress events for 300 files", events.len());
+        let last = events.last().unwrap();
+        assert!(last.finished);
+        assert_eq!((last.files_done, last.files_total), (300, 300));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

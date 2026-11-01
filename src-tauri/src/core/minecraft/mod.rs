@@ -266,7 +266,9 @@ pub async fn ensure_files(
                 )
                 .with_sha1(object.hash.clone())
                 .with_size(object.size)
-                .with_label(short_name(name)),
+                .with_label(short_name(name))
+                // Named by their own hash: a file of the right size is the right file.
+                .with_quick_verify(),
             );
         }
         download_many(
