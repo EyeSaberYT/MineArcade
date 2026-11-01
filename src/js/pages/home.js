@@ -85,7 +85,7 @@ export function render(root) {
             <p class="eyebrow">Insert coin to continue</p>
             <h2>Play on <span>MineArcade</span></h2>
             <p class="arcade-hero-addr">${icon('server', 'icon-sm')} ${server}</p>
-            <p class="arcade-hero-desc">Jump straight onto the server with your instance. Pick a different one with the arrow.</p>
+            <p class="arcade-hero-desc">Jump straight onto the server with your instance.<br>Pick a different one with the arrow.</p>
             <div class="hero-launch ${heroRunning ? 'is-running' : ''}">
               ${hero
                 ? heroRunning
