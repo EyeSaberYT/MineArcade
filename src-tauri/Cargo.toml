@@ -1,8 +1,8 @@
 [package]
-name = "minearcade"
+name = "orbit-launcher"
 version = "0.5.0"
-description = "MineArcade - the official MineArcade Minecraft launcher"
-authors = ["MineArcade"]
+description = "Orbit Launcher - a Minecraft launcher with Orbit Client built in"
+authors = ["Orbit Launcher"]
 edition = "2021"
 rust-version = "1.77"
 license = "MIT"
@@ -10,7 +10,7 @@ license = "MIT"
 # The library holds the launcher logic so it can be unit tested; main.rs is a thin shell.
 # The _lib suffix avoids a name clash between the lib and bin targets on Windows.
 [lib]
-name = "minearcade_lib"
+name = "orbit_launcher_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

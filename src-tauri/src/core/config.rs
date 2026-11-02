@@ -47,11 +47,11 @@ fn default_true() -> bool {
 }
 
 
-/// The MineArcade network.
+/// The featured server joined by the Join buttons until changed in Settings.
 pub const DEFAULT_SERVER_ADDRESS: &str = "farms.minearcade.org";
 /// The address the launcher defaulted to before; saved settings still holding it move to the new one.
 const OLD_DEFAULT_SERVER_ADDRESS: &str = "play.minearcade.org";
-pub const DEFAULT_SERVER_NAME: &str = "MineArcade";
+pub const DEFAULT_SERVER_NAME: &str = "Featured Server";
 
 fn default_featured_server() -> String {
     DEFAULT_SERVER_ADDRESS.into()
@@ -100,13 +100,16 @@ pub enum Theme {
 /// user-editable, because pointing sign-in at an unregistered app only ever
 /// produces confusing failures.
 ///
-/// It can only be swapped at build time (`MINEARCADE_MS_CLIENT_ID=<id> cargo build`):
+/// It can only be swapped at build time (`ORBIT_LAUNCHER_MS_CLIENT_ID=<id> cargo build`;
+/// the old `MINEARCADE_MS_CLIENT_ID` name is still read as a fallback):
 /// it is read with `option_env!`, so nothing at runtime — no setting, no
 /// command, no config file — can change it.
 pub fn microsoft_client_id() -> &'static str {
-    // MineArcade's Azure app registration (public client, personal accounts only),
+    // The launcher's Azure app registration (public client, personal accounts only),
     // allow-listed by Mojang for Minecraft sign-in.
-    option_env!("MINEARCADE_MS_CLIENT_ID").unwrap_or("25257470-05eb-4959-bc32-6b6bdb883bac")
+    option_env!("ORBIT_LAUNCHER_MS_CLIENT_ID")
+        .or(option_env!("MINEARCADE_MS_CLIENT_ID"))
+        .unwrap_or("25257470-05eb-4959-bc32-6b6bdb883bac")
 }
 
 impl Settings {

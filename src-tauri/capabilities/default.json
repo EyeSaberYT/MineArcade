@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the MineArcade main window.",
+  "description": "Permissions for the Orbit Launcher main window.",
   "windows": ["main"],
   "permissions": [
     "core:default",

@@ -755,7 +755,9 @@ pub fn download_headers(url: &str) -> Vec<(String, String)> {
     if let Ok(parsed) = ::url::Url::parse(url) {
         let host = parsed.host_str().unwrap_or("");
         if parsed.scheme() == "https" && (host == "edge.forgecdn.net" || host.ends_with(".forgecdn.net")) {
-            let key = std::env::var("MINEARCADE_CURSEFORGE_API_KEY").unwrap_or_else(|_| CURSEFORGE_API_KEY.to_string());
+            let key = std::env::var("ORBIT_LAUNCHER_CURSEFORGE_API_KEY")
+                .or_else(|_| std::env::var("MINEARCADE_CURSEFORGE_API_KEY"))
+                .unwrap_or_else(|_| CURSEFORGE_API_KEY.to_string());
             if !key.is_empty() {
                 return vec![("x-api-key".to_string(), key)];
             }

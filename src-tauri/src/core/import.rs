@@ -5,13 +5,13 @@
 //! * **Nothing another launcher owns is written to.** A scan only reads
 //!   metadata, and an import copies the game folder out of it, so the original
 //!   keeps working — including for people who still open the other launcher.
-//! * **A copy is not a clone.** MineArcade resolves the game itself (client jar,
+//! * **A copy is not a clone.** Orbit Launcher resolves the game itself (client jar,
 //!   libraries, assets, natives, loader profile) from its own shared `meta/`
 //!   folder, so the parts of a game folder that belong to the *launcher* rather
 //!   than to the player are deliberately left behind. [`Skips`] is the single
 //!   place that decides which.
 //!
-//! Reading other launchers means reading formats MineArcade does not control:
+//! Reading other launchers means reading formats Orbit Launcher does not control:
 //! `mmc-pack.json` (Prism/MultiMC), `minecraftinstance.json` (CurseForge),
 //! `launcher_profiles.json` (the Minecraft Launcher) and Modrinth's SQLite
 //! database. Every one of them is treated as a hint: whatever cannot be read
@@ -32,7 +32,7 @@ use crate::error::{LauncherError, Result};
 // What a scan hands back
 // ---------------------------------------------------------------------------
 
-/// A launcher MineArcade can read game folders out of.
+/// A launcher Orbit Launcher can read game folders out of.
 ///
 /// The serde spelling of each variant is part of the frontend API: the import
 /// dialog sends the same key back when it asks for a candidate to be imported.
@@ -76,7 +76,7 @@ pub struct ImportCandidate {
     pub mods: usize,
     /// Newest file modification time, in milliseconds since the Unix epoch.
     pub modified: Option<i64>,
-    /// What MineArcade could not work out, in the user's words.
+    /// What Orbit Launcher could not work out, in the user's words.
     pub note: Option<String>,
 }
 
@@ -86,7 +86,7 @@ pub struct ImportCandidate {
 pub struct ImportSourceInfo {
     pub kind: ImportSource,
     pub label: String,
-    /// Where MineArcade looked, even when nothing was found.
+    /// Where Orbit Launcher looked, even when nothing was found.
     pub path: String,
     /// Whether the launcher looks installed.
     pub found: bool,
@@ -94,7 +94,7 @@ pub struct ImportSourceInfo {
     pub note: Option<String>,
 }
 
-/// The whole answer to "what could MineArcade import?".
+/// The whole answer to "what could Orbit Launcher import?".
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportScan {
@@ -219,7 +219,7 @@ impl ImportSource {
     }
 }
 
-/// Look for importable instances in every launcher MineArcade knows about.
+/// Look for importable instances in every launcher Orbit Launcher knows about.
 ///
 /// This touches a lot of small files, so callers should keep it off the async
 /// runtime. Nothing here can fail as a whole: a launcher that is missing or
@@ -302,7 +302,7 @@ pub fn inspect(path: &Path) -> Result<Vec<ImportCandidate>> {
 
 /// Prism and MultiMC keep one folder per instance under `instances/`, each with
 /// an `mmc-pack.json` naming the exact components it was built from — the most
-/// precise of the formats MineArcade reads.
+/// precise of the formats Orbit Launcher reads.
 fn scan_prism(root: &Path) -> Result<Vec<ImportCandidate>> {
     let mut found = Vec::new();
     for entry in read_dir_sorted(&root.join("instances"))? {
@@ -359,7 +359,7 @@ fn prism_candidate(instance: &Path) -> Result<Option<ImportCandidate>> {
     .map(Some)
 }
 
-/// The `mmc-pack.json` components MineArcade understands.
+/// The `mmc-pack.json` components Orbit Launcher understands.
 fn mmc_build(pack: MmcPack) -> (Option<String>, Option<LoaderKind>, Option<String>) {
     let mut build = (None, None, None);
     for component in pack.components {
@@ -547,7 +547,7 @@ fn scan_vanilla(root: &Path) -> Result<Vec<ImportCandidate>> {
     Ok(found)
 }
 
-/// One launcher profile, with its version id turned into MineArcade's own fields.
+/// One launcher profile, with its version id turned into Orbit Launcher's own fields.
 fn vanilla_candidate(game: &Path, profile: &VanillaProfile) -> Result<ImportCandidate> {
     let version_id = profile.last_version_id.clone().unwrap_or_default();
     let (mut game_version, loader, loader_version) = parse_version_id(&version_id);
@@ -582,7 +582,7 @@ fn vanilla_candidate(game: &Path, profile: &VanillaProfile) -> Result<ImportCand
     })
 }
 
-/// `launcher_profiles.json`, of which MineArcade only needs the profile list.
+/// `launcher_profiles.json`, of which Orbit Launcher only needs the profile list.
 #[derive(Debug, Deserialize)]
 struct VanillaProfiles {
     #[serde(default)]
@@ -654,7 +654,7 @@ fn loader_from_version_json(json: &serde_json::Value) -> (Option<LoaderKind>, Op
 /// the content set an instance is built on, and an older single `profiles`
 /// table that held them itself.
 ///
-/// Both are read, and a database MineArcade cannot make sense of (a future
+/// Both are read, and a database Orbit Launcher cannot make sense of (a future
 /// migration, a corrupt file) turns into "nothing found" rather than an error.
 fn scan_modrinth(root: &Path) -> Result<Vec<ImportCandidate>> {
     let database = root.join("app.db");
@@ -869,7 +869,7 @@ fn table_columns(connection: &rusqlite::Connection, table: &str) -> Result<Vec<S
     Ok(names)
 }
 
-/// Whether a table has a column, so a schema that moves on only costs MineArcade
+/// Whether a table has a column, so a schema that moves on only costs Orbit Launcher
 /// the column it lost.
 fn has_column(columns: &[String], name: &str) -> bool {
     columns.iter().any(|column| column == name)
@@ -904,7 +904,7 @@ fn folder_candidate(folder: &Path) -> Result<ImportCandidate> {
     })
 }
 
-/// Read what MineArcade can out of a game folder it has no prior knowledge of.
+/// Read what Orbit Launcher can out of a game folder it has no prior knowledge of.
 fn classify(game: &Path) -> Result<(Option<String>, Option<LoaderKind>, Option<String>)> {
     if let Some(pack) = read_json::<MmcPack>(&game.join("mmc-pack.json"))? {
         return Ok(mmc_build(pack));
@@ -1023,7 +1023,7 @@ fn loader_from_mod_jars(game: &Path) -> Option<LoaderKind> {
 // Version ids
 // ---------------------------------------------------------------------------
 
-/// Split a launcher's version id into the pieces MineArcade needs.
+/// Split a launcher's version id into the pieces Orbit Launcher needs.
 ///
 /// Every installer names the version it adds after what it added, for example
 /// `fabric-loader-0.16.9-1.21.1` or `1.21.1-forge-52.0.0`. This is only a
@@ -1117,7 +1117,7 @@ fn is_release_number(value: &str) -> bool {
 }
 
 /// Maven versions of Forge used to carry the Minecraft version in front
-/// (`1.20.1-47.2.0`); MineArcade wants the loader build alone.
+/// (`1.20.1-47.2.0`); Orbit Launcher wants the loader build alone.
 fn trim_loader_version(version: &str) -> Option<String> {
     let version = version.trim();
     if let Some((head, tail)) = version.split_once('-') {
@@ -1205,7 +1205,7 @@ fn measure(game: &Path, skips: &Skips) -> Result<Measured> {
 
 /// Copy a game folder into a new instance's own game folder.
 ///
-/// Only the player's files travel; everything MineArcade rebuilds, and everything
+/// Only the player's files travel; everything Orbit Launcher rebuilds, and everything
 /// the source launcher owns, stays where it is. The folder is measured first so
 /// the progress bar has a total, and progress is then reported as bytes land
 /// (throttled, since a modpack can be tens of thousands of files).
@@ -1293,9 +1293,9 @@ struct Skips {
     prefixes: &'static [&'static str],
 }
 
-/// Everything MineArcade either rebuilds itself or lets the game recreate.
+/// Everything Orbit Launcher either rebuilds itself or lets the game recreate.
 const ALWAYS_SKIP: &[&str] = &[
-    // Resolved from MineArcade's own shared `meta/` folder.
+    // Resolved from Orbit Launcher's own shared `meta/` folder.
     "assets",
     "libraries",
     "versions",
@@ -1410,7 +1410,7 @@ fn read_dir_sorted(path: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// A QSettings-style file: one `key=value` per line, which is all of
-/// `instance.cfg` MineArcade needs.
+/// `instance.cfg` Orbit Launcher needs.
 fn parse_ini(path: &Path) -> BTreeMap<String, String> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return BTreeMap::new();
@@ -1464,7 +1464,7 @@ mod tests {
     /// A clean scratch directory under the temp folder, keyed by test name so
     /// the tests can run in parallel.
     pub(super) fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("minearcade-import-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("orbit-launcher-import-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir
@@ -1853,7 +1853,7 @@ mod modrinth_tests {
     }
 
     #[test]
-    fn a_database_minearcade_cannot_read_is_not_an_error() {
+    fn a_database_orbit_launcher_cannot_read_is_not_an_error() {
         let root = scratch("modrinth-odd");
         write(root.join("app.db"), "not a database at all");
 

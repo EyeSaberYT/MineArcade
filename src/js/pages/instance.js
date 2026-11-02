@@ -113,7 +113,7 @@ export function render(root, params) {
           </div>
           <div class="row-wrap inst-hero-actions">
             ${playControls()}
-            ${server && !running && html`<button class="btn btn-cyan" data-act="join" ${isLaunching(id) ? 'disabled' : ''} title="Launch straight into ${server}">${icon('server')} Join MineArcade</button>`}
+            ${server && !running && html`<button class="btn btn-cyan" data-act="join" ${isLaunching(id) ? 'disabled' : ''} title="Launch straight into ${server}">${icon('server')} Join server</button>`}
             <button class="btn btn-icon" data-act="folder" title="Open instance folder">${icon('folder')}</button>
             <button class="btn btn-icon" data-act="more" title="More">${icon('more')}</button>
           </div>

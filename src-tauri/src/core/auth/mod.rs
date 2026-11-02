@@ -1,6 +1,6 @@
 //! Minecraft account authentication.
 //!
-//! MineArcade only supports real Microsoft accounts, signed in through the
+//! Orbit Launcher only supports real Microsoft accounts, signed in through the
 //! Microsoft/Xbox Live chain with the device code flow (see [`microsoft`]).
 
 pub mod microsoft;

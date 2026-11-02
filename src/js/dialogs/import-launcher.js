@@ -1,6 +1,6 @@
 // "Import from another launcher": scan Prism/MultiMC, CurseForge, the Modrinth
 // App and the vanilla launcher (or a folder picked by hand), let the player
-// tick and adjust instances, then copy them into new MineArcade instances.
+// tick and adjust instances, then copy them into new Orbit Launcher instances.
 // The scan only reads metadata; nothing in the other launcher is changed.
 import * as api from '../api.js';
 import { refreshInstances } from '../actions.js';

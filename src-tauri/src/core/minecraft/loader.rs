@@ -434,7 +434,7 @@ mod forge_tests {
     #[test]
     fn reads_a_legacy_installer() {
         let Ok(installer) = std::env::var("FORGE_LEGACY_INSTALLER") else { return };
-        let libs = std::env::temp_dir().join(format!("minearcade-forge-libs-{}", std::process::id()));
+        let libs = std::env::temp_dir().join(format!("orbit-launcher-forge-libs-{}", std::process::id()));
         let profile = legacy_forge_profile(Path::new(&installer), &libs).unwrap().expect("legacy profile");
         assert_eq!(profile.main_class, "net.minecraft.launchwrapper.Launch");
         assert_eq!(profile.inherited_from.as_deref(), Some("1.8.9"));

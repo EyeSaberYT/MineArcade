@@ -699,7 +699,7 @@ mod tests {
     /// tests all share the system temp dir, so a shared root means one test
     /// deletes another's archive mid-scan.
     fn root_for(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("minearcade-scan-test-{}-{name}", std::process::id()))
+        std::env::temp_dir().join(format!("orbit-launcher-scan-test-{}-{name}", std::process::id()))
     }
 
     /// Write a real archive into a `mods/` folder under the system temp dir, so

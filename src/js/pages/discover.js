@@ -39,7 +39,7 @@ const MAX_VERSIONS = 50;
 const CURSEFORGE_MAX_RESULTS = 10_000;
 
 /** sessionStorage key holding the last Discover URL, for the project page's back link. */
-export const LAST_DISCOVER_KEY = 'minearcade.discover.last';
+export const LAST_DISCOVER_KEY = 'orbit.discover.last';
 
 const sortsFor = (source) => (source === 'curseforge' ? CURSEFORGE_SORTS : SORTS);
 // Modrinth files datapack categories under the mod project type.
@@ -432,7 +432,7 @@ export function render(root, params, query) {
     const hit = hits[index];
     if (!hit) return;
     try {
-      if (hit.author) sessionStorage.setItem(`minearcade.author.${hit.projectId}`, hit.author);
+      if (hit.author) sessionStorage.setItem(`orbit.author.${hit.projectId}`, hit.author);
     } catch {
       // Best effort.
     }

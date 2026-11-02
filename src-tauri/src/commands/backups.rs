@@ -15,7 +15,7 @@ use crate::state::AppState;
 pub struct WorldsOverview {
     /// `<game dir>/saves`, so the UI can reveal it.
     pub saves_path: String,
-    /// Where MineArcade keeps its zips, so the UI can reveal that too.
+    /// Where Orbit Launcher keeps its zips, so the UI can reveal that too.
     pub backups_path: String,
     pub worlds: Vec<World>,
     pub backups: Vec<Backup>,
@@ -56,7 +56,7 @@ async fn ensure_stopped(state: &State<'_, AppState>, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Every world in the instance and every backup MineArcade has taken of them.
+/// Every world in the instance and every backup Orbit Launcher has taken of them.
 #[tauri::command]
 pub async fn worlds_overview(state: State<'_, AppState>, id: String) -> Result<WorldsOverview> {
     let (game, instance_dir) = dirs(&state, &id).await?;

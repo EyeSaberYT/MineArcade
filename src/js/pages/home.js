@@ -36,6 +36,24 @@ const SLOTS = {
   2: { x: 88, y: 63, size: 56 },
 };
 
+/** Just past either end of the orbit: where worlds fade in from and out to while it spins. */
+const OFF_ORBIT = { x: 3, y: 71, size: 34 };
+
+/** A point anywhere along the orbit, between the slots: offset 0.5 is halfway from the front to the next world. */
+function orbitAt(offset) {
+  const slot = (n) => (Math.abs(n) >= 3 ? { ...OFF_ORBIT, x: n < 0 ? OFF_ORBIT.x : 100 - OFF_ORBIT.x } : SLOTS[n]);
+  const t = Math.max(-3, Math.min(3, offset));
+  const lo = Math.floor(t);
+  const hi = Math.ceil(t);
+  if (lo === hi) return slot(lo);
+  const a = slot(lo);
+  const b = slot(hi);
+  const f = t - lo;
+  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, size: a.size + (b.size - a.size) * f };
+}
+
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 const SHORT_LOADER = { fabric: 'FAB', quilt: 'QLT', forge: 'FRG', neoforge: 'NEO', vanilla: 'VAN' };
 
 /** Orbit Client first, then the rest by last played. */
@@ -105,7 +123,7 @@ export function render(root) {
           ${shown.map(({ offset, instance }) => {
             const slot = SLOTS[offset];
             const live = store.state.running.has(instance.id);
-            return html`<button class="world ${offset === 0 ? 'is-front' : ''}" data-world="${instance.id}"
+            return html`<button class="world ${offset === 0 ? 'is-front' : ''}" data-world="${instance.id}" data-offset="${offset}"
                 style="left:${slot.x}%;top:${slot.y}%;--s:${slot.size}px"
                 aria-label="${instance.name}${offset === 0 ? ' (selected)' : ''}">
                 ${planet(instance)}
@@ -177,9 +195,103 @@ export function render(root) {
     );
   };
 
+  /**
+   * Spin the orbit: each world glides along it from where it was to its new place (through the
+   * slots in between, so it follows the ellipse rather than cutting across). Worlds arriving fade
+   * in from the end of the orbit they come from, and the title fades over.
+   */
+  const animateOrbit = (before, shift) => {
+    const stage = root.querySelector('[data-stage]');
+    if (!stage || !shift || reducedMotion()) return;
+    const width = stage.clientWidth;
+    const height = stage.clientHeight;
+    const timing = { duration: 460, easing: 'cubic-bezier(.22,.8,.24,1)' };
+    stage.querySelectorAll('[data-world]').forEach((world) => {
+      const to = Number(world.dataset.offset);
+      let from = before.get(world.dataset.world);
+      // A world that wrapped around a short orbit, or wasn't shown, arrives from the far end instead.
+      const arriving = from === undefined || from - shift !== to;
+      if (arriving) from = to + Math.sign(shift) * Math.max(1, 3 - Math.abs(to));
+      const end = orbitAt(to);
+      const frames = [];
+      for (let step = 0; step <= 8; step++) {
+        const at = orbitAt(from + ((to - from) * step) / 8);
+        const dx = ((at.x - end.x) / 100) * width;
+        const dy = ((at.y - end.y) / 100) * height;
+        frames.push({
+          transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(${at.size / end.size})`,
+          opacity: arriving ? step / 8 : 1,
+        });
+      }
+      world.animate(frames, timing);
+    });
+    stage.querySelectorAll('.world-label').forEach((label) =>
+      label.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, delay: 240, fill: 'backwards' }),
+    );
+    stage.querySelector('.play-title')?.animate(
+      [{ opacity: 0, transform: `translateX(${shift > 0 ? 18 : -18}px)` }, { opacity: 1, transform: 'none' }],
+      { duration: 320, easing: 'ease-out' },
+    );
+  };
+
+  /**
+   * Turn a world into another kind: it collapses into a flash, a shockwave rings out, and the
+   * new world swells back up with a little overshoot. Worlds off the orbit just change.
+   */
+  const morphPlanet = async (id, kindId) => {
+    const findWorld = () => root.querySelector(`[data-world="${CSS.escape(id)}"]`);
+    const old = findWorld();
+    if (old && !reducedMotion()) {
+      await old.animate(
+        [
+          { transform: 'translate(-50%, -50%) scale(1)', filter: 'brightness(1)' },
+          { transform: 'translate(-50%, -50%) scale(0.15)', filter: 'brightness(3)', opacity: 0.2 },
+        ],
+        { duration: 240, easing: 'cubic-bezier(.55,0,.8,.4)', fill: 'forwards' },
+      ).finished.catch(() => {});
+    }
+    setPlanetKind(id, kindId);
+    draw();
+    const world = findWorld();
+    if (!world || reducedMotion()) return;
+    world.animate(
+      [
+        { transform: 'translate(-50%, -50%) scale(0.15)', filter: 'brightness(3)', opacity: 0.2 },
+        { transform: 'translate(-50%, -50%) scale(1.12)', filter: 'brightness(1.3)', opacity: 1, offset: 0.65 },
+        { transform: 'translate(-50%, -50%) scale(1)', filter: 'brightness(1)', opacity: 1 },
+      ],
+      { duration: 520, easing: 'cubic-bezier(.2,.8,.25,1)' },
+    );
+    // The shockwave: a ring in the new world's atmosphere colour, sized to the world.
+    const burst = document.createElement('span');
+    burst.className = 'world-burst';
+    burst.style.cssText = `left:${world.style.left};top:${world.style.top};--s:${world.style.getPropertyValue('--s')};--glow:${planetOf({ id, tags: [] }).kind.atmo}`;
+    world.after(burst);
+    burst
+      .animate(
+        [
+          { transform: 'translate(-50%, -50%) scale(0.3)', opacity: 0.95 },
+          { transform: 'translate(-50%, -50%) scale(1.9)', opacity: 0 },
+        ],
+        { duration: 650, easing: 'cubic-bezier(.1,.7,.3,1)' },
+      )
+      .finished.finally(() => burst.remove());
+  };
+
   const select = (id) => {
+    // Where every world sits now, so the redraw can animate from there.
+    const before = new Map([...root.querySelectorAll('[data-world]')].map((w) => [w.dataset.world, Number(w.dataset.offset)]));
+    let shift = before.get(id);
+    if (shift === undefined) {
+      // Picked from the list while off the orbit: spin the short way round to it.
+      const list = worlds();
+      const n = list.length;
+      const diff = list.findIndex((i) => i.id === id) - selectedIndex(list);
+      shift = ((((diff % n) + n + Math.floor(n / 2)) % n) - Math.floor(n / 2)) || 0;
+    }
     prefs.set('play.selected', id);
     draw();
+    animateOrbit(before, shift);
   };
 
   const spin = (direction) => {
@@ -235,10 +347,7 @@ export function render(root) {
       ...PLANET_KINDS.map((kind) => ({
         label: kind.label,
         trail: kind.id === current ? 'Current' : '',
-        onSelect: () => {
-          setPlanetKind(instance.id, kind.id);
-          draw();
-        },
+        onSelect: () => morphPlanet(instance.id, kind.id),
       })),
     ]);
   });

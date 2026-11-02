@@ -49,7 +49,7 @@ pub async fn servers_list(state: State<'_, AppState>, id: String) -> Result<Serv
 /// The whole list is written at once: the UI edits it as a unit and the game
 /// only reads the file at startup, so there is nothing to merge with. The game
 /// writes this same file back whenever the player edits the list in game, which
-/// is why the UI warns instead of MineArcade quietly overwriting a running instance.
+/// is why the UI warns instead of Orbit Launcher quietly overwriting a running instance.
 #[tauri::command]
 pub async fn servers_save(
     state: State<'_, AppState>,

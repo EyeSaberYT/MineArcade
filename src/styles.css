@@ -703,7 +703,7 @@ code {
   color: #ffffff;
 }
 
-/* Tinted secondary action (Join MineArcade, Update). */
+/* Tinted secondary action (Join server, Update). */
 .btn-cyan {
   background: var(--primary-soft);
   color: var(--primary);

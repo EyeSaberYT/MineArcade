@@ -1,11 +1,11 @@
 //! World backups: zipping a world folder, and putting one back.
 //!
-//! A world lives in `<game dir>/saves/<world>`, and MineArcade writes its backups to
+//! A world lives in `<game dir>/saves/<world>`, and Orbit Launcher writes its backups to
 //! `<instance>/backups/<world>-<stamp>.zip` — beside the game directory rather
 //! than inside it, so the game never sees them and exporting an instance as a
 //! modpack does not drag them along.
 //!
-//! Restoring is the only operation in MineArcade that can destroy work, so it never
+//! Restoring is the only operation in Orbit Launcher that can destroy work, so it never
 //! deletes first: the world standing in the way is zipped into the backup folder
 //! before anything is removed, which makes a restore undoable even if it fails
 //! halfway through.
@@ -19,11 +19,11 @@ use crate::error::{LauncherError, Result};
 /// Folder the game keeps its worlds in, relative to a game directory.
 pub const SAVES_DIR: &str = "saves";
 
-/// Folder MineArcade keeps backups in, relative to an instance directory.
+/// Folder Orbit Launcher keeps backups in, relative to an instance directory.
 pub const BACKUPS_DIR: &str = "backups";
 
 /// The file that makes a folder a world. The game lists a world when it has one,
-/// so MineArcade uses the same rule rather than inventing a second definition.
+/// so Orbit Launcher uses the same rule rather than inventing a second definition.
 const LEVEL_FILE: &str = "level.dat";
 
 /// Icon the game writes beside a world once it has been played.
@@ -52,7 +52,7 @@ pub struct World {
 #[serde(rename_all = "camelCase")]
 pub struct Backup {
     /// File name. Restoring and deleting refer to a backup by this name, never
-    /// by a path, so the UI can never point MineArcade outside the backup folder.
+    /// by a path, so the UI can never point Orbit Launcher outside the backup folder.
     pub name: String,
     /// Absolute path, for revealing.
     pub path: String,
@@ -294,7 +294,7 @@ fn world_of(file_name: &str) -> String {
 }
 
 /// Whether two dash-separated segments look like the `YYYYMMDD-HHMMSS` stamp
-/// MineArcade writes, as produced by the format string in [`unique_path`].
+/// Orbit Launcher writes, as produced by the format string in [`unique_path`].
 fn is_stamp(date: &str, time: &str) -> bool {
     date.len() == 8
         && time.len() == 6
@@ -445,7 +445,7 @@ mod tests {
     /// A throwaway directory under the target's temp folder.
     fn temp_dir(label: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "minearcade-backups-{label}-{}",
+            "orbit-launcher-backups-{label}-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);

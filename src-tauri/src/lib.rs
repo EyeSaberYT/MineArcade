@@ -1,4 +1,4 @@
-//! MineArcade — the MineArcade network's Minecraft launcher.
+//! Orbit Launcher — a Minecraft launcher with Orbit Client built in.
 //!
 //! The crate is split into three layers:
 //!
@@ -18,7 +18,7 @@ use tauri::Manager;
 use crate::core::paths::AppPaths;
 
 /// Sent on every HTTP request so Modrinth/Mojang can identify the launcher.
-pub const USER_AGENT: &str = concat!("MineArcade/", env!("CARGO_PKG_VERSION"), " (minearcade.org)");
+pub const USER_AGENT: &str = concat!("OrbitLauncher/", env!("CARGO_PKG_VERSION"), " (+https://github.com/EyeSaberYT/Orbit-Launcher)");
 
 /// Entry point used by both `main.rs` and mobile targets.
 pub fn run() {
@@ -65,7 +65,7 @@ pub fn run() {
                 let _ = window.set_title("Orbit Launcher");
             }
             // Screenshots and world icons are drawn with `asset:` URLs, and the
-            // data root is only known at runtime (`MINEARCADE_DATA_DIR` can put it
+            // data root is only known at runtime (`ORBIT_LAUNCHER_DATA_DIR` can put it
             // anywhere), so the scope is granted here instead of being written
             // into the bundle config.
             let root = app.state::<state::AppState>().paths.root.clone();

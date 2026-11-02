@@ -70,7 +70,7 @@ export const ACCENTS = [
   { id: 'violet', label: 'Violet', color: '#a06cf0' },
   { id: 'cyan', label: 'Cyan', color: '#4fc3ff' },
   { id: 'green', label: 'Green', color: '#3fd07a' },
-  { id: 'pink', label: 'MineArcade pink', color: '#ff3df2' },
+  { id: 'pink', label: 'Orbit pink', color: '#ff3df2' },
   { id: 'red', label: 'Red', color: '#ef5350' },
 ];
 
@@ -86,7 +86,7 @@ export function currentAccent() {
   let custom = '#6e8cff';
   try {
     id = localStorage.getItem(ACCENT_KEY) ?? id;
-    custom = localStorage.getItem('minearcade.customAccent') ?? custom;
+    custom = localStorage.getItem('orbit.customAccent') ?? custom;
   } catch {
     // Storage unavailable: defaults.
   }
@@ -98,7 +98,7 @@ export function currentAccent() {
 export function applyAccent(id, custom) {
   try {
     localStorage.setItem(ACCENT_KEY, id);
-    if (custom) localStorage.setItem('minearcade.customAccent', custom);
+    if (custom) localStorage.setItem('orbit.customAccent', custom);
   } catch {
     // Keep it for this session only.
   }
@@ -167,7 +167,7 @@ export async function launchInstance(id, quickPlay) {
   }
 }
 
-/** Launch straight into the featured MineArcade server. */
+/** Launch straight into the featured server. */
 export function joinFeaturedServer(id) {
   const address = featuredServer();
   return launchInstance(id, address ? { type: 'multiplayer', address } : undefined);
@@ -216,7 +216,7 @@ export function spotlightInstance() {
 }
 
 /**
- * One-click "play on MineArcade": join with the most recently played
+ * One-click "play on the featured server": join with the most recently played
  * instance, or set one up first when there are none.
  */
 export async function quickJoin() {
@@ -224,7 +224,7 @@ export async function quickJoin() {
   if (instance) return joinFeaturedServer(instance.id);
   const { openNewInstanceDialog } = await import('./dialogs/new-instance.js');
   openNewInstanceDialog({
-    name: 'MineArcade',
+    name: 'Orbit Launcher',
     onCreated: (created) => joinFeaturedServer(created.id),
   });
 }

@@ -1,5 +1,5 @@
-//! Discord Rich Presence: shows "Playing MineArcade" with the instance being
-//! played on the player's Discord profile.
+//! Discord Rich Presence: shows "Playing <the launcher's Discord application>"
+//! with the instance being played on the player's Discord profile.
 //!
 //! The IPC client is blocking, so it lives on its own thread and is driven by
 //! messages. Discord may not be running (or may be restarted), so the thread
@@ -17,7 +17,7 @@ use super::instance::{Instance, LoaderKind, QuickPlay};
 const RETRY_EVERY: Duration = Duration::from_secs(15);
 /// Asset key of the logo uploaded under Rich Presence → Art Assets in the
 /// Discord application.
-const LARGE_IMAGE: &str = "minearcade-discord-logo";
+const LARGE_IMAGE: &str = "orbit-client";
 /// The two buttons under the presence (Discord allows at most two). Only other
 /// people see them; Discord hides them on your own profile.
 const BUTTONS: [(&str, &str); 2] = [
@@ -25,11 +25,14 @@ const BUTTONS: [(&str, &str); 2] = [
     ("Get Orbit Launcher", "https://github.com/EyeSaberYT/Orbit-Launcher/releases/latest"),
 ];
 
-/// The "MineArcade" application on the Discord Developer Portal (IDs are
-/// public). Build with `MINEARCADE_DISCORD_APP_ID=<id>` to swap it; an empty
-/// value turns Rich Presence off entirely.
+/// The launcher's application on the Discord Developer Portal (IDs are
+/// public). Build with `ORBIT_LAUNCHER_DISCORD_APP_ID=<id>` (or the old
+/// `MINEARCADE_DISCORD_APP_ID`) to swap it; an empty value turns Rich Presence
+/// off entirely.
 pub fn app_id() -> &'static str {
-    option_env!("MINEARCADE_DISCORD_APP_ID").unwrap_or("1566135647021043893")
+    option_env!("ORBIT_LAUNCHER_DISCORD_APP_ID")
+        .or(option_env!("MINEARCADE_DISCORD_APP_ID"))
+        .unwrap_or("1566135647021043893")
 }
 
 /// What one running game shows.

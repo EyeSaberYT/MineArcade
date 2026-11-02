@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    minearcade_lib::run()
+    orbit_launcher_lib::run()
 }

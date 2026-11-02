@@ -1,4 +1,4 @@
-//! Filesystem layout used by MineArcade.
+//! Filesystem layout used by Orbit Launcher.
 //!
 //! Everything the launcher owns lives under a single root directory so that a
 //! user can back it up, move it, or delete it trivially.
@@ -126,19 +126,44 @@ impl AppPaths {
 
     /// Resolve the correct place for the launcher data on the host OS.
     ///
-    /// Everything lives in one dot-prefixed folder (`.minearcade`) so it is easy
-    /// to spot, back up or delete. An explicit `MINEARCADE_DATA_DIR` always wins.
+    /// Everything lives in one dot-prefixed folder (`.orbitlauncher`) so it is
+    /// easy to spot, back up or delete. An explicit `ORBIT_LAUNCHER_DATA_DIR`
+    /// (or the old `MINEARCADE_DATA_DIR`) always wins.
     pub fn discover() -> Self {
-        let paths = if let Ok(override_dir) = std::env::var("MINEARCADE_DATA_DIR") {
+        let override_dir =
+            std::env::var("ORBIT_LAUNCHER_DATA_DIR").or_else(|_| std::env::var("MINEARCADE_DATA_DIR"));
+        let paths = if let Ok(override_dir) = override_dir {
             Self::new(override_dir)
         } else {
             let data_dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
-            Self::new(data_dir.join(".minearcade"))
+            Self::new(migrate_legacy_root(&data_dir))
         };
         // Layout normalisation applies to every root, overrides included: it
-        // only rearranges instance folders MineArcade itself wrote.
+        // only rearranges instance folders Orbit Launcher itself wrote.
         flatten_instances(&paths.root);
         paths
+    }
+}
+
+/// Data folder name used since the rename to Orbit Launcher.
+const ROOT_DIR_NAME: &str = ".orbitlauncher";
+/// Data folder name from before the rename to Orbit Launcher.
+const LEGACY_ROOT_DIR_NAME: &str = ".minearcade";
+
+/// Pick the data root under `data_dir`, moving the pre-rename folder over once.
+///
+/// When only the legacy folder exists it is renamed to the new name. If that
+/// rename fails (another volume, a file in use, ...) the legacy folder keeps
+/// being used as-is, so an install never starts over with an empty library.
+fn migrate_legacy_root(data_dir: &Path) -> PathBuf {
+    let root = data_dir.join(ROOT_DIR_NAME);
+    let legacy = data_dir.join(LEGACY_ROOT_DIR_NAME);
+    if root.exists() || !legacy.is_dir() {
+        return root;
+    }
+    match std::fs::rename(&legacy, &root) {
+        Ok(()) => root,
+        Err(_) => legacy,
     }
 }
 
@@ -226,7 +251,7 @@ mod tests {
     /// A clean scratch directory under the temp folder, keyed by test name so
     /// the tests can run in parallel.
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("minearcade-paths-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("orbit-launcher-paths-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir
@@ -272,5 +297,39 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn moves_the_legacy_data_folder_once() {
+        let base = scratch("migrate");
+        let legacy = base.join(LEGACY_ROOT_DIR_NAME);
+        std::fs::create_dir_all(legacy.join("instances/abc123")).expect("legacy dirs");
+        std::fs::write(legacy.join("config.json"), "{}").expect("legacy config");
+
+        // Only the legacy folder: it is moved to the new name.
+        let root = migrate_legacy_root(&base);
+        assert_eq!(root, base.join(ROOT_DIR_NAME));
+        assert!(root.join("config.json").is_file(), "settings must move along");
+        assert!(root.join("instances/abc123").is_dir(), "instances must move along");
+        assert!(!legacy.exists(), "the legacy folder must be gone after the move");
+
+        // A legacy folder reappearing next to the new one is left untouched.
+        std::fs::create_dir_all(&legacy).expect("stray legacy dir");
+        std::fs::write(legacy.join("config.json"), "stray").expect("stray config");
+        assert_eq!(migrate_legacy_root(&base), base.join(ROOT_DIR_NAME));
+        assert_eq!(
+            std::fs::read_to_string(root.join("config.json")).unwrap(),
+            "{}",
+            "an existing new folder must never be overwritten"
+        );
+        assert!(legacy.join("config.json").is_file(), "the stray folder must be kept, not deleted");
+
+        // Neither folder: a fresh install uses the new name.
+        let fresh = scratch("migrate-fresh");
+        assert_eq!(migrate_legacy_root(&fresh), fresh.join(ROOT_DIR_NAME));
+        assert!(!fresh.join(ROOT_DIR_NAME).exists(), "nothing is created up front");
+
+        let _ = std::fs::remove_dir_all(&base);
+        let _ = std::fs::remove_dir_all(&fresh);
     }
 }

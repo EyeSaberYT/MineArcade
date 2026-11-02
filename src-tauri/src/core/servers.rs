@@ -1,7 +1,7 @@
 //! The per-instance multiplayer server list, i.e. `servers.dat`.
 //!
 //! The file is a gzipped NBT compound holding a single `servers` list of
-//! compounds, each with a name, an address and a couple of flags. MineArcade models
+//! compounds, each with a name, an address and a couple of flags. Orbit Launcher models
 //! exactly the fields the game's own `ServerData` serialises, so a list written
 //! here is shaped the same as one the game wrote: anything else a third-party
 //! tool left in the file is dropped, which is precisely what the game does when
@@ -46,7 +46,7 @@ pub struct ServerEntry {
     /// Hidden entries only appear in game while "hidden servers" is toggled on.
     pub hidden: bool,
     /// Legacy "server sent resource packs" flag. The game still writes it, and
-    /// MineArcade carries it rather than resetting a choice it did not make.
+    /// Orbit Launcher carries it rather than resetting a choice it did not make.
     pub accept_textures: bool,
 }
 
@@ -505,12 +505,12 @@ mod tests {
 
     #[test]
     fn ensure_server_adds_once_and_keeps_existing_entries() {
-        let dir = std::env::temp_dir().join(format!("minearcade-ensure-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("orbit-launcher-ensure-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = ServerList::path_in(&dir);
 
-        assert!(ensure_server(&dir, "MineArcade", "play.minearcade.org").expect("first"));
-        assert!(!ensure_server(&dir, "MineArcade", "PLAY.minearcade.org").expect("second"));
+        assert!(ensure_server(&dir, "Featured Server", "play.minearcade.org").expect("first"));
+        assert!(!ensure_server(&dir, "Featured Server", "PLAY.minearcade.org").expect("second"));
         assert_eq!(read(&path).expect("read").expect("list").servers.len(), 1);
 
         // A player's own list keeps its entries; ours goes on top.
@@ -521,7 +521,7 @@ mod tests {
             },
         )
         .expect("write");
-        assert!(ensure_server(&dir, "MineArcade", "play.minearcade.org").expect("third"));
+        assert!(ensure_server(&dir, "Featured Server", "play.minearcade.org").expect("third"));
         let servers = read(&path).expect("read").expect("list").servers;
         assert_eq!(servers[0].address, "play.minearcade.org");
         assert_eq!(servers[1].address, "mine.example.com");
@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn writes_and_reads_back_through_the_filesystem() {
-        let dir = std::env::temp_dir().join(format!("minearcade-servers-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("orbit-launcher-servers-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = ServerList::path_in(&dir);
 

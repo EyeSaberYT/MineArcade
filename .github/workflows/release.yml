@@ -8,7 +8,8 @@
 #   git tag v0.2.0 && git push origin v0.2.0
 #
 # Required repository secrets:
-#   TAURI_SIGNING_PRIVATE_KEY          contents of %USERPROFILE%\.tauri\minearcade.key
+#   TAURI_SIGNING_PRIVATE_KEY          contents of the updater signing key file
+#                                      (the existing key is %USERPROFILE%\.tauri\minearcade.key)
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD key password (empty if none)
 name: Release
 
@@ -81,8 +82,8 @@ jobs:
           releaseName: Orbit Launcher ${{ github.ref_name }}
           releaseBody: |
             **Install**
-            - **Windows:** `MineArcade_*_x64-setup.exe` (or the `.msi`).
-            - **Linux:** `MineArcade_*_amd64.AppImage` (`chmod +x` and run), or the `.deb` / `.rpm`.
+            - **Windows:** `Orbit Launcher_*_x64-setup.exe` (or the `.msi`).
+            - **Linux:** `Orbit Launcher_*_amd64.AppImage` (`chmod +x` and run), or the `.deb` / `.rpm`.
             - **macOS:** the `.dmg`.
 
             Already installed? Orbit Launcher updates itself: accept the prompt or use Settings > Updates.

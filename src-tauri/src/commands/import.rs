@@ -1,6 +1,6 @@
 //! Commands that discover and import instances from other launchers.
 //!
-//! MineArcade never moves or edits the other launcher's files: every import is a
+//! Orbit Launcher never moves or edits the other launcher's files: every import is a
 //! copy into a brand-new instance, and the scan step only reads metadata off
 //! disk. The command layer is responsible for turning that metadata into a real
 //! instance (creating its directory, installing the loader, and persisting it).
@@ -16,14 +16,14 @@ use crate::core::{java, minecraft};
 use crate::error::{LauncherError, Result};
 use crate::state::AppState;
 
-/// Payload the import dialog sends back for each instance it wants MineArcade to
+/// Payload the import dialog sends back for each instance it wants Orbit Launcher to
 /// copy in.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportRequest {
     /// The launcher the folder came from; used to pick the correct skip list.
     pub source: ImportSource,
-    /// Name to give the new MineArcade instance.
+    /// Name to give the new Orbit Launcher instance.
     pub name: String,
     /// Game folder to copy from.
     pub path: String,
@@ -110,7 +110,7 @@ pub async fn import_inspect(path: String) -> Result<Vec<ImportCandidate>> {
     result.map_err(|_| LauncherError::msg("Inspection was cancelled."))?
 }
 
-/// Copy the requested game folders into brand-new MineArcade instances.
+/// Copy the requested game folders into brand-new Orbit Launcher instances.
 ///
 /// Each successful import creates an instance (persisted in the store), copies
 /// the player's files in, and installs the loader the source specified. When a
@@ -198,7 +198,7 @@ async fn import_one(
 
     // Install the loader. The latest stable is used when the source did not pin
     // a specific build. For Fabric/Quilt the install is lightweight; for
-    // Forge/NeoForge MineArcade may download the installer and (if needed) Java 17.
+    // Forge/NeoForge Orbit Launcher may download the installer and (if needed) Java 17.
     if instance.loader != LoaderKind::Vanilla {
         let loader_version = match instance.loader_version.clone() {
             Some(version) => version,

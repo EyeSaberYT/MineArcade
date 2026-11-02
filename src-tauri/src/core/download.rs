@@ -431,7 +431,7 @@ mod tests {
 
     #[tokio::test]
     async fn present_files_are_counted_and_progress_is_throttled() {
-        let dir = std::env::temp_dir().join(format!("minearcade-dl-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("orbit-launcher-dl-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         // 300 files already on disk at the expected size: nothing is fetched
         // (the URL is unreachable on purpose) and no file is re-hashed.

@@ -62,7 +62,7 @@ export function render(root, params, query) {
 
   const author = (() => {
     try {
-      return sessionStorage.getItem(`minearcade.author.${id}`) ?? '';
+      return sessionStorage.getItem(`orbit.author.${id}`) ?? '';
     } catch {
       return '';
     }

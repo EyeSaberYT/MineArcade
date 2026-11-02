@@ -1,4 +1,4 @@
-// Worlds tab: the instance's saves and the zip backups MineArcade has taken of
+// Worlds tab: the instance's saves and the zip backups Orbit Launcher has taken of
 // them. Backing up and restoring touch files the game writes while it runs, so
 // both wait until the instance is closed; deleting a backup is always allowed.
 import * as api from '../../api.js';

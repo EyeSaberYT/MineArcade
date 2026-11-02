@@ -8,7 +8,7 @@ import { store } from './store.js';
 import { formatBytes, toast } from './ui.js';
 
 const STARTUP_DELAY_MS = 3000;
-const TOAST_ID = 'minearcade-update';
+const TOAST_ID = 'orbit-update';
 
 function setUpdater(patch) {
   store.set('updater', { ...store.state.updater, ...patch });

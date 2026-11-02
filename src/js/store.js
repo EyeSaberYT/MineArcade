@@ -83,11 +83,37 @@ export function appendConsole(instanceId, stream, text) {
   notify('console');
 }
 
+/** Prefix of every localStorage key the launcher writes. */
+export const STORAGE_PREFIX = 'orbit.';
+const LEGACY_STORAGE_PREFIX = 'minearcade.';
+
+/**
+ * One-time move of keys saved before the rename to Orbit Launcher: each
+ * `minearcade.*` key is copied to `orbit.*` unless that already exists, then removed.
+ */
+function migrateLegacyStorage() {
+  try {
+    const legacyKeys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(LEGACY_STORAGE_PREFIX)) legacyKeys.push(key);
+    }
+    for (const key of legacyKeys) {
+      const target = STORAGE_PREFIX + key.slice(LEGACY_STORAGE_PREFIX.length);
+      if (localStorage.getItem(target) === null) localStorage.setItem(target, localStorage.getItem(key));
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // Storage unavailable: nothing to migrate.
+  }
+}
+migrateLegacyStorage();
+
 /** Persisted UI preferences (view modes, dismissed hints, ...). */
 export const prefs = {
   get(key, fallback) {
     try {
-      const raw = localStorage.getItem(`minearcade.${key}`);
+      const raw = localStorage.getItem(`${STORAGE_PREFIX}${key}`);
       return raw === null ? fallback : JSON.parse(raw);
     } catch {
       return fallback;
@@ -95,7 +121,7 @@ export const prefs = {
   },
   set(key, value) {
     try {
-      localStorage.setItem(`minearcade.${key}`, JSON.stringify(value));
+      localStorage.setItem(`${STORAGE_PREFIX}${key}`, JSON.stringify(value));
     } catch {
       // Storage full or unavailable: preferences are best effort.
     }

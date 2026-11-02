@@ -156,7 +156,7 @@ function mount(root, initialPanel, close) {
               <input class="input settings-num" type="number" min="1" max="32" data-key="concurrentDownloads" data-type="int" value="${draft.concurrentDownloads}">
             </div>
             <div class="settings-row">
-              <span class="grow"><b>MineArcade server</b><small>Used by the Join buttons and added to every new instance's server list.</small></span>
+              <span class="grow"><b>Featured server</b><small>Used by the Join buttons and added to every new instance's server list.</small></span>
               <input class="input mono settings-server" data-key="featuredServer" value="${draft.featuredServer ?? ''}" placeholder="${DEFAULT_SERVER}" spellcheck="false">
             </div>
           </div>`,
@@ -295,7 +295,7 @@ function mount(root, initialPanel, close) {
       return section(
         'info',
         'About Orbit Launcher',
-        'Free, ad-free, and built for the MineArcade server.',
+        'Free, ad-free, and one click away from your favourite server.',
         html`
           ${info
             ? html`<div class="grid-3">${[

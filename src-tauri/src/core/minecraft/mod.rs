@@ -466,7 +466,7 @@ pub fn build_command(ctx: &LaunchContext) -> Result<(String, Vec<String>)> {
     vars.insert("resolution_height", ctx.height.to_string());
     vars.insert("user_properties", "{}".into());
     vars.insert("auth_xuid", "0".into());
-    vars.insert("clientid", "minearcade".into());
+    vars.insert("clientid", "orbit-launcher".into());
     // Quick Play placeholders (1.20+).
     match &ctx.quick_play {
         QuickPlay::Multiplayer { address } => {
