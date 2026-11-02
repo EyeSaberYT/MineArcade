@@ -1,6 +1,6 @@
 [package]
 name = "orbit-launcher"
-version = "0.5.4"
+version = "0.5.5"
 description = "Orbit Launcher - a Minecraft launcher with Orbit Client built in"
 authors = ["Orbit Launcher"]
 edition = "2021"

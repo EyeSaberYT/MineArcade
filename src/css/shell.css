@@ -108,6 +108,20 @@ body {
   background: var(--float);
 }
 
+/* A dropdown's list is drawn by the OS, which can't show see-through glass: with the glass
+   --panel its entries came out white on white. Give them a solid dark fill, and ask for the
+   OS's dark dropdown. */
+select {
+  color-scheme: dark;
+}
+
+select option,
+select optgroup,
+select.input option {
+  background: #17162f;
+  color: var(--text);
+}
+
 /* ---------- Layout: the bar floats over the page ---------- */
 
 .app {
