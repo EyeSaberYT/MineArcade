@@ -1,45 +1,45 @@
 /* ==========================================================================
-   MineArcade design system
+   Orbit Launcher design system
    Area-specific styles live in css/*.css; this file holds the tokens and the
    shared components every page uses.
    ========================================================================== */
 
-/* Colours follow the Modrinth App's dark and light themes. */
+/* Orbit colours: night-blue glass surfaces like Orbit Client's menu, and the periwinkle of the icon's orbit. */
 :root {
   /* Top bar and rail around the page panel. */
-  --shell: #27292e;
+  --shell: #0b0d14;
   /* The page panel, and recessed areas inside cards. */
-  --bg: #16181c;
-  --bg-2: #1d1f23;
+  --bg: #101219;
+  --bg-2: #13161e;
   /* Cards, then buttons and inputs, then hover/selected fills. */
-  --panel: #27292e;
-  --panel-2: #34363c;
-  --panel-3: #42444a;
-  --line: #34363c;
-  --line-strong: #42444a;
+  --panel: #181b23;
+  --panel-2: #20242f;
+  --panel-3: #2c3140;
+  --line: #22262f;
+  --line-strong: #2c3140;
   --heading: #ffffff;
-  --text: #dfe5ea;
-  --muted: #96a2b0;
-  --faint: #6f7783;
+  --text: #e8eaf0;
+  --muted: #8c93a6;
+  --faint: #5f6678;
 
   /* applyAccent() overrides the --primary-* set with the chosen accent. */
-  --primary: #1bd96a;
-  --primary-2: #0faa4f;
-  --primary-soft: rgba(27, 217, 106, 0.16);
-  --primary-line: rgba(27, 217, 106, 0.45);
-  --primary-glow: rgba(27, 217, 106, 0.25);
+  --primary: #6e8cff;
+  --primary-2: #4f6bff;
+  --primary-soft: rgba(110, 140, 255, 0.16);
+  --primary-line: rgba(110, 140, 255, 0.45);
+  --primary-glow: rgba(110, 140, 255, 0.28);
   /* Text on an accent-filled button. */
-  --on-primary: #000000;
+  --on-primary: #0b0d14;
   --hover-brightness: 1.2;
 
-  --cyan: #4f9cff;
+  --cyan: #4fc3ff;
   --yellow: #ffcd4f;
-  --green: #1bd96a;
+  --green: #3fd07a;
   --red: #ff496e;
   --orange: #ffa347;
   --blue: #4f9cff;
-  --violet: #c78aff;
-  --focus: #4f9cff;
+  --violet: #a06cf0;
+  --focus: #6e8cff;
 
   /* Loader colours from Modrinth's platform tags. */
   --fabric: #dbb69b;
@@ -47,12 +47,12 @@
   --forge: #959eef;
   --neoforge: #f99e6b;
 
-  --tooltip-bg: #0e0f12;
+  --tooltip-bg: #07080d;
   --tooltip-text: #ffffff;
 
   --radius: 16px;
   --radius-sm: 12px;
-  --shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
   --mono: 'Cascadia Mono', Consolas, 'SFMono-Regular', Menlo, monospace;
   --sans: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif;
 
@@ -64,9 +64,9 @@
 }
 
 :root[data-theme='light'] {
-  --shell: #f8f8f8;
-  --bg: #ebebeb;
-  --bg-2: #f2f2f2;
+  --shell: #f5f6fa;
+  --bg: #e9ebf2;
+  --bg-2: #f0f1f6;
   --panel: #ffffff;
   --panel-2: #ececec;
   --panel-3: #e0e0e0;
@@ -76,21 +76,21 @@
   --text: #2c2e31;
   --muted: #484d54;
   --faint: #7a7f87;
-  --primary: #00af5c;
-  --primary-2: #04914f;
-  --primary-soft: rgba(0, 175, 92, 0.14);
-  --primary-line: rgba(0, 175, 92, 0.4);
-  --primary-glow: rgba(0, 175, 92, 0.22);
+  --primary: #4a63e0;
+  --primary-2: #3a4fc2;
+  --primary-soft: rgba(74, 99, 224, 0.12);
+  --primary-line: rgba(74, 99, 224, 0.4);
+  --primary-glow: rgba(74, 99, 224, 0.2);
   --on-primary: #ffffff;
   --hover-brightness: 0.92;
   --cyan: #1f68c0;
   --yellow: #a87e00;
-  --green: #00af5c;
+  --green: #1f9d57;
   --red: #cb2245;
   --orange: #c66019;
   --blue: #1f68c0;
-  --violet: #8e32f3;
-  --focus: #1f68c0;
+  --violet: #7a3fe0;
+  --focus: #4a63e0;
   --fabric: #8a7b71;
   --quilt: #8b61b4;
   --forge: #5b6197;
@@ -270,7 +270,10 @@ code {
   grid-template-columns: 64px minmax(0, 1fr);
   grid-template-rows: 48px minmax(0, 1fr);
   height: 100vh;
-  background: var(--shell);
+  /* A faint orbit glow from the top corner, like the light around Orbit Client's menu. */
+  background:
+    radial-gradient(1200px 520px at 0% 0%, var(--primary-soft), transparent 60%),
+    var(--shell);
 }
 
 /* ---------- Top bar ---------- */
@@ -296,7 +299,8 @@ code {
 .brand-logo {
   width: 28px;
   height: 28px;
-  image-rendering: pixelated;
+  border-radius: 7px;
+  filter: drop-shadow(0 0 8px var(--primary-glow));
 }
 
 .brand-name {

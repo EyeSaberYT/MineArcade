@@ -395,7 +395,7 @@
 
 .scan-clean {
   border-color: var(--primary-line);
-  background: rgba(27, 217, 106, 0.1);
+  background: color-mix(in srgb, var(--green) 10%, transparent);
   color: var(--green);
 }
 

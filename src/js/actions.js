@@ -63,25 +63,27 @@ lightQuery.addEventListener('change', () => applyTheme(store.state.settings?.the
 // ---------- Accent colour ----------
 // Like the theme in Aether, the accent is a per-device preference kept in localStorage.
 
-// The first accent is the stylesheet's own (Modrinth green), so choosing it
-// clears the overrides and the light theme's darker green applies again.
+// The first accent is the stylesheet's own (Orbit periwinkle), so choosing it
+// clears the overrides and the light theme's deeper blue applies again.
 export const ACCENTS = [
-  { id: 'green', label: 'Modrinth green', color: '#1bd96a' },
+  { id: 'orbit', label: 'Orbit', color: '#6e8cff' },
+  { id: 'violet', label: 'Violet', color: '#a06cf0' },
+  { id: 'cyan', label: 'Cyan', color: '#4fc3ff' },
+  { id: 'green', label: 'Green', color: '#3fd07a' },
   { id: 'pink', label: 'MineArcade pink', color: '#ff3df2' },
   { id: 'red', label: 'Red', color: '#ef5350' },
-  { id: 'purple', label: 'Purple', color: '#a78bfa' },
-  { id: 'blue', label: 'Blue', color: '#50aaff' },
 ];
 
 const DEFAULT_ACCENT = ACCENTS[0].id;
-// A new key: the old one defaulted to pink, and the look now starts green.
-const ACCENT_KEY = 'minearcade.accentChoice';
+// A new key again: the old one is written on every start, so it holds green for
+// everyone, and the Orbit look starts on the Orbit accent.
+const ACCENT_KEY = 'orbit.accentChoice';
 const ACCENT_PROPERTIES = ['--primary', '--primary-2', '--primary-soft', '--primary-line', '--primary-glow', '--on-primary'];
 
 /** { id, custom } — the chosen accent and the last custom colour. */
 export function currentAccent() {
   let id = DEFAULT_ACCENT;
-  let custom = '#1bd96a';
+  let custom = '#6e8cff';
   try {
     id = localStorage.getItem(ACCENT_KEY) ?? id;
     custom = localStorage.getItem('minearcade.customAccent') ?? custom;

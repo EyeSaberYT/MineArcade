@@ -525,7 +525,7 @@
 }
 
 .dc-vtype.dc-compat-ok {
-  background: rgba(27, 217, 106, 0.14);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
 }
 
 .dc-vtype.dc-compat-warn {
