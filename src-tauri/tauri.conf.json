@@ -53,7 +53,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU4MzBDMTQ3RDBFQUM4OTQKUldTVXlPclFSOEV3V0pVc1kyaXhySzNKbURzM25GenpaYjl0S2E2OWRTQWpPb2J5NDE1bVlBZXQK",
       "requireSignedVersion": true,
-      "endpoints": ["https://github.com/EyeSaberYT/MineArcade/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/EyeSaberYT/Orbit-Launcher/releases/latest/download/latest.json"],
       "windows": {
         "installMode": "passive"
       }

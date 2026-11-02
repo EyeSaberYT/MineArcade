@@ -9,7 +9,7 @@ import { formatBytes, html, icon, openModal, setHtml, spinner, toast, toastError
 import { checkForUpdates, installUpdate, relaunchApp } from '../updater.js';
 
 const JAVA_MAJORS = [8, 16, 17, 21, 25];
-const RELEASES_URL = 'https://github.com/EyeSaberYT/MineArcade/releases/latest';
+const RELEASES_URL = 'https://github.com/EyeSaberYT/Orbit-Launcher/releases/latest';
 const DEFAULT_SERVER = 'farms.minearcade.org';
 
 const PANELS = [

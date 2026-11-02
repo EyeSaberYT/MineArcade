@@ -22,7 +22,7 @@ const LARGE_IMAGE: &str = "minearcade-discord-logo";
 /// people see them; Discord hides them on your own profile.
 const BUTTONS: [(&str, &str); 2] = [
     ("Join Discord", "https://discord.gg/5D7DrptJ75"),
-    ("Get Orbit Launcher", "https://github.com/EyeSaberYT/MineArcade/releases/latest"),
+    ("Get Orbit Launcher", "https://github.com/EyeSaberYT/Orbit-Launcher/releases/latest"),
 ];
 
 /// The "MineArcade" application on the Discord Developer Portal (IDs are
