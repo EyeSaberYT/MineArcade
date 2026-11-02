@@ -27,9 +27,11 @@ pub async fn launch_instance(
         }
     }
 
-    // Orbit Client plays its newest release.
+    // Orbit Client plays its newest release, and every other Fabric instance gets it too.
     if crate::commands::orbit::is_orbit(state.instances.read().await.get(&id)?) {
         crate::commands::orbit::prepare_launch(&app, &state, &id).await?;
+    } else {
+        crate::commands::orbit::prepare_other_launch(&app, &state, &id).await;
     }
     let mut instance = state.instances.read().await.get(&id)?.clone();
     if let Some(quick_play) = quick_play {

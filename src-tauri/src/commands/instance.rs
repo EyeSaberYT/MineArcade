@@ -549,7 +549,20 @@ pub async fn instance_delete_content(
     if !target.is_file() || !is_managed_content_file(&root, &target) {
         return Err(LauncherError::msg("That file isn't part of this instance."));
     }
+    let removes_orbit = target
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().starts_with("orbit-client-"));
     std::fs::remove_file(target)?;
+    // Removing Orbit Client by hand means this instance should stay without it.
+    if removes_orbit && !crate::commands::orbit::is_orbit(&instance) {
+        let mut store = state.instances.write().await;
+        let entry = store.get_mut(&id)?;
+        entry.installed_projects.retain(|p| p.project_id != crate::commands::orbit::PROJECT_ID);
+        if !entry.tags.iter().any(|t| t == crate::commands::orbit::OPT_OUT_TAG) {
+            entry.tags.push(crate::commands::orbit::OPT_OUT_TAG.into());
+        }
+        store.persist(&state.paths, &id)?;
+    }
     Ok(())
 }
 

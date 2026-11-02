@@ -37,6 +37,9 @@ pub struct Settings {
     /// Show what you're playing on your Discord profile.
     #[serde(default = "default_true")]
     pub discord_rich_presence: bool,
+    /// Put Orbit Client (and Fabric API) into every Fabric instance on a version it supports.
+    #[serde(default = "default_true")]
+    pub orbit_in_every_instance: bool,
 }
 
 fn default_true() -> bool {
@@ -76,6 +79,7 @@ impl Default for Settings {
             modrinth_api_url: "https://api.modrinth.com/v2".into(),
             featured_server: default_featured_server(),
             discord_rich_presence: true,
+            orbit_in_every_instance: true,
         }
     }
 }

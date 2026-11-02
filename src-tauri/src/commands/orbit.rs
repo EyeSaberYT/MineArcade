@@ -19,6 +19,8 @@ use crate::state::AppState;
 
 /// Marks the managed instance.
 pub const TAG: &str = "orbit-client";
+/// Marks an instance whose player removed Orbit Client: it isn't put back.
+pub const OPT_OUT_TAG: &str = "no-orbit-client";
 /// The Minecraft version Orbit Client is built for.
 pub const GAME_VERSION: &str = "1.21.11";
 /// The id the jar is recorded under in `installed_projects`. Not a Modrinth id:
@@ -131,10 +133,66 @@ async fn repair(app: &AppHandle, state: &State<'_, AppState>, id: &str) -> Resul
     if instance.loader_version.is_none() {
         instance_install_loader(app.clone(), state.clone(), id.to_string(), None).await?;
     }
-    if !instance.installed_projects.iter().any(|p| p.project_id == FABRIC_API) {
-        modrinth_install(app.clone(), state.clone(), id.to_string(), FABRIC_API.into(), None).await?;
+    ensure_fabric_api(app, state, &instance).await
+}
+
+/// Install Fabric API unless the instance has it, tracked or as a loose jar (modpacks bring their own).
+async fn ensure_fabric_api(app: &AppHandle, state: &State<'_, AppState>, instance: &Instance) -> Result<()> {
+    let tracked = instance.installed_projects.iter().any(|p| p.project_id == FABRIC_API);
+    if !tracked && !has_mod_jar(&game_dir(&state.paths, instance).join("mods"), "fabric-api") {
+        modrinth_install(app.clone(), state.clone(), instance.id.clone(), FABRIC_API.into(), None).await?;
     }
     Ok(())
+}
+
+/// Whether `mods` holds a jar whose name starts with `prefix`, enabled or disabled.
+fn has_mod_jar(mods: &std::path::Path, prefix: &str) -> bool {
+    std::fs::read_dir(mods).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+            name.starts_with(prefix) && (name.ends_with(".jar") || name.ends_with(".jar.disabled"))
+        })
+    })
+}
+
+/// Before any other instance launches: give it Orbit Client when it's a Fabric instance on a
+/// version Orbit Client has a jar for, the setting is on and the player didn't remove it there.
+/// Never stops the launch: offline or on an unsupported version it plays as it is.
+pub async fn prepare_other_launch(app: &AppHandle, state: &State<'_, AppState>, id: &str) {
+    if !state.settings.read().await.orbit_in_every_instance {
+        return;
+    }
+    let Ok(instance) = state.instances.read().await.get(id).cloned() else { return };
+    if instance.loader != LoaderKind::Fabric || instance.tags.iter().any(|t| t == OPT_OUT_TAG) {
+        return;
+    }
+    // A jar the player disabled stays disabled.
+    let mods = game_dir(&state.paths, &instance).join("mods");
+    if std::fs::read_dir(&mods).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            name.starts_with("orbit-client-") && name.ends_with(".jar.disabled")
+        })
+    }) {
+        return;
+    }
+    let result = async {
+        let release = latest_release(state).await?;
+        if pick_asset(&release, &instance.game_version).is_none() {
+            return Ok(());
+        }
+        // Fabric API first: Orbit Client without it would crash the game.
+        ensure_fabric_api(app, state, &instance).await?;
+        update_jar_from(app, state, id, &release).await.map(|_| ())
+    }
+    .await;
+    if let Err(error) = result {
+        log::warn!("orbit client: not added to instance {id}: {error}");
+    }
+}
+
+async fn latest_release(state: &AppState) -> Result<Release> {
+    get_json(&state.http, LATEST_RELEASE).await
 }
 
 /// Before a launch: repair the instance, then the newest jar if GitHub can be reached, else the one already there.
@@ -153,9 +211,13 @@ pub async fn prepare_launch(app: &AppHandle, state: &State<'_, AppState>, id: &s
 /// Download the newest Orbit Client jar if it isn't the one installed. Returns
 /// the new version, or `None` when it was already current.
 pub async fn update_jar(app: &AppHandle, state: &AppState, id: &str) -> Result<Option<String>> {
-    let release: Release = get_json(&state.http, LATEST_RELEASE).await?;
+    let release = latest_release(state).await?;
+    update_jar_from(app, state, id, &release).await
+}
+
+async fn update_jar_from(app: &AppHandle, state: &AppState, id: &str, release: &Release) -> Result<Option<String>> {
     let instance = state.instances.read().await.get(id)?.clone();
-    let asset = pick_asset(&release, &instance.game_version).ok_or_else(|| {
+    let asset = pick_asset(release, &instance.game_version).ok_or_else(|| {
         LauncherError::msg(format!("The latest Orbit Client release has no jar for Minecraft {}.", instance.game_version))
     })?;
     if !is_safe_filename(&asset.name) {
@@ -211,7 +273,7 @@ pub async fn update_jar(app: &AppHandle, state: &AppState, id: &str) -> Result<O
         store.persist(&state.paths, id)?;
     }
     log::info!("orbit client: installed {} ({})", release.tag_name, asset.name);
-    Ok(Some(release.tag_name))
+    Ok(Some(release.tag_name.clone()))
 }
 
 #[cfg(test)]
@@ -276,6 +338,18 @@ mod tests {
         let url = format!("https://api.modrinth.com/v2/project/{FABRIC_API}");
         let project: Project = get_json(&http, &url).await.expect("Fabric API on Modrinth");
         assert_eq!(project.slug, "fabric-api");
+    }
+
+    /// Modpacks ship Fabric API as a loose jar; finding it there avoids installing a second copy.
+    #[test]
+    fn finds_loose_mod_jars() {
+        let dir = std::env::temp_dir().join(format!("orbit-mods-{}", crate::core::instance::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(!has_mod_jar(&dir, "fabric-api"));
+        std::fs::write(dir.join("fabric-api-0.141.6+1.21.11.jar"), b"").unwrap();
+        assert!(has_mod_jar(&dir, "fabric-api"));
+        assert!(!has_mod_jar(&dir, "sodium"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The record's id must survive the store's cleanup of malformed project ids.
