@@ -122,7 +122,7 @@ applyAccent(currentAccent().id);
 
 // ---------- Launching ----------
 
-/** The featured server (play.minearcade.org unless changed in Settings). */
+/** The featured server (farms.minearcade.org unless changed in Settings). */
 export const featuredServer = () => store.state.settings?.featuredServer?.trim() ?? '';
 
 /**
@@ -260,7 +260,7 @@ function showSignInDialog() {
 
   signInModal = openModal({
     title: 'Sign in with Microsoft',
-    description: 'Use the Microsoft account that owns Minecraft: Java Edition. MineArcade never sees your password.',
+    description: 'Use the Microsoft account that owns Minecraft: Java Edition. Orbit Launcher never sees your password.',
     size: 'sm',
     body: html`<div data-signin></div>`,
     footer: html`<button class="btn btn-ghost" data-close>Close</button>`,

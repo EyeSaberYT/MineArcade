@@ -41,7 +41,7 @@ pub struct AppInfo {
 #[tauri::command]
 pub async fn app_info(state: State<'_, AppState>) -> Result<AppInfo> {
     Ok(AppInfo {
-        name: "MineArcade".into(),
+        name: "Orbit Launcher".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         os: std::env::consts::OS.into(),
         arch: std::env::consts::ARCH.into(),

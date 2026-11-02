@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "MineArcade",
+        "title": "Orbit Launcher",
         "width": 1240,
         "height": 780,
         "minWidth": 960,
@@ -35,8 +35,8 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "category": "Game",
-    "shortDescription": "The MineArcade Minecraft launcher",
-    "longDescription": "MineArcade is a fast, ad-free Minecraft launcher with Modrinth and CurseForge mods, modpacks, instance management and one-click joining of the MineArcade server.",
+    "shortDescription": "Orbit Launcher: the Minecraft launcher with Orbit Client built in",
+    "longDescription": "Orbit Launcher is a fast, ad-free Minecraft launcher with Orbit Client built in, with Modrinth and CurseForge mods, modpacks, instance management and one-click joining of the MineArcade server.",
     "copyright": "MIT Licensed",
     "icon": [
       "icons/32x32.png",

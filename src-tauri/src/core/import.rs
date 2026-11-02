@@ -669,7 +669,7 @@ fn scan_modrinth(root: &Path) -> Result<Vec<ImportCandidate>> {
         modrinth_profiles(&connection, root)?
     } else {
         return Err(LauncherError::msg(
-            "Modrinth App's database has no instance table MineArcade recognises.",
+            "Modrinth App's database has no instance table Orbit Launcher recognises.",
         ));
     };
 
@@ -885,9 +885,9 @@ fn folder_candidate(folder: &Path) -> Result<ImportCandidate> {
     let (game_version, loader, loader_version) = classify(&game)?;
 
     let note = if game_version.is_none() {
-        Some("MineArcade could not tell which Minecraft version this folder uses, so pick one.".into())
+        Some("Orbit Launcher could not tell which Minecraft version this folder uses, so pick one.".into())
     } else if loader.is_none() && has_mods(&game) {
-        Some("This folder has mods but no loader MineArcade could identify — check the loader.".into())
+        Some("This folder has mods but no loader Orbit Launcher could identify — check the loader.".into())
     } else {
         None
     };
@@ -1654,7 +1654,7 @@ mod tests {
             "cached credentials must never be copied"
         );
         assert!(!target.join("clientId_v2.txt").exists());
-        assert!(!target.join("assets").exists(), "assets are MineArcade's own");
+        assert!(!target.join("assets").exists(), "assets are Orbit Launcher's own");
 
         std::fs::remove_dir_all(&root).ok();
     }

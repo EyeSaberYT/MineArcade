@@ -45,7 +45,9 @@ fn default_true() -> bool {
 
 
 /// The MineArcade network.
-pub const DEFAULT_SERVER_ADDRESS: &str = "play.minearcade.org";
+pub const DEFAULT_SERVER_ADDRESS: &str = "farms.minearcade.org";
+/// The address the launcher defaulted to before; saved settings still holding it move to the new one.
+const OLD_DEFAULT_SERVER_ADDRESS: &str = "play.minearcade.org";
 pub const DEFAULT_SERVER_NAME: &str = "MineArcade";
 
 fn default_featured_server() -> String {
@@ -105,10 +107,35 @@ pub fn microsoft_client_id() -> &'static str {
 
 impl Settings {
     pub fn load(paths: &AppPaths) -> Result<Self> {
-        Ok(read_json(&paths.config_file())?.unwrap_or_default())
+        let mut settings: Self = read_json(&paths.config_file())?.unwrap_or_default();
+        settings.migrate();
+        Ok(settings)
+    }
+
+    /// Settings saved by older versions: the featured server they defaulted to is now the new default.
+    fn migrate(&mut self) {
+        if self.featured_server.trim().eq_ignore_ascii_case(OLD_DEFAULT_SERVER_ADDRESS) {
+            self.featured_server = DEFAULT_SERVER_ADDRESS.into();
+        }
     }
 
     pub fn save(&self, paths: &AppPaths) -> Result<()> {
         write_json(&paths.config_file(), self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_old_default_server_moves_to_the_new_one() {
+        let mut settings = Settings { featured_server: "Play.MineArcade.org ".into(), ..Settings::default() };
+        settings.migrate();
+        assert_eq!(settings.featured_server, DEFAULT_SERVER_ADDRESS);
+
+        let mut custom = Settings { featured_server: "my.server.net".into(), ..Settings::default() };
+        custom.migrate();
+        assert_eq!(custom.featured_server, "my.server.net");
     }
 }

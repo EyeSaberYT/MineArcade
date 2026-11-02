@@ -22,7 +22,7 @@ const LARGE_IMAGE: &str = "minearcade-discord-logo";
 /// people see them; Discord hides them on your own profile.
 const BUTTONS: [(&str, &str); 2] = [
     ("Join Discord", "https://discord.gg/5D7DrptJ75"),
-    ("Get MineArcade", "https://github.com/EyeSaberYT/MineArcade/releases/latest"),
+    ("Get Orbit Launcher", "https://github.com/EyeSaberYT/MineArcade/releases/latest"),
 ];
 
 /// The "MineArcade" application on the Discord Developer Portal (IDs are
@@ -166,7 +166,7 @@ fn run(app_id: &str, mut enabled: bool, rx: mpsc::Receiver<Message>) {
                     .details(details)
                     .state(state)
                     .timestamps(Timestamps::new().start(game.map_or(launcher_started, |g| g.started)))
-                    .assets(Assets::new().large_image(LARGE_IMAGE).large_text("MineArcade"))
+                    .assets(Assets::new().large_image(LARGE_IMAGE).large_text("Orbit Launcher"))
                     .buttons(BUTTONS.iter().map(|&(label, url)| Button::new(label, url)).collect());
                 if let Err(error) = connected.set_activity(activity) {
                     // Discord quit or restarted: drop the pipe and reconnect next round.

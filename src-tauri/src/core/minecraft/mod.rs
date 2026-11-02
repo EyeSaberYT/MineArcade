@@ -457,9 +457,9 @@ pub fn build_command(ctx: &LaunchContext) -> Result<(String, Vec<String>)> {
     vars.insert("auth_access_token", ctx.access_token.clone());
     vars.insert("auth_session", format!("token:{}", ctx.access_token));
     vars.insert("user_type", ctx.user_type.clone());
-    vars.insert("version_type", "MineArcade".into());
+    vars.insert("version_type", "Orbit Launcher".into());
     vars.insert("natives_directory", ctx.natives_dir.to_string_lossy().to_string());
-    vars.insert("launcher_name", "MineArcade".into());
+    vars.insert("launcher_name", "Orbit Launcher".into());
     vars.insert("launcher_version", env!("CARGO_PKG_VERSION").into());
     vars.insert("classpath", classpath.clone());
     vars.insert("resolution_width", ctx.width.to_string());

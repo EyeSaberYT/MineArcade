@@ -47,7 +47,7 @@ export async function installUpdate() {
     const percent = total ? Math.floor((downloaded / total) * 100) : null;
     if (percent !== null && percent === lastShown) return;
     lastShown = percent ?? lastShown;
-    toast(`Downloading MineArcade ${update.version}…`, {
+    toast(`Downloading Orbit Launcher ${update.version}…`, {
       id: TOAST_ID,
       kind: 'loading',
       description: total ? `${formatBytes(downloaded)} / ${formatBytes(total)}` : `${formatBytes(downloaded)} downloaded`,
@@ -67,10 +67,10 @@ export async function installUpdate() {
       show();
     });
     setUpdater({ status: 'installed', progress: null });
-    toast(`MineArcade ${update.version} installed`, {
+    toast(`Orbit Launcher ${update.version} installed`, {
       id: TOAST_ID,
       kind: 'success',
-      description: 'Restart MineArcade to finish the update.',
+      description: 'Restart Orbit Launcher to finish the update.',
       actions: [{ label: 'Restart now', onClick: relaunchApp }],
     });
   } catch (error) {
@@ -90,7 +90,7 @@ export function startUpdateCheck() {
     await checkForUpdates({ silent: true });
     const { status, update, discoveredBy } = store.state.updater;
     if (status === 'available' && discoveredBy === 'startup' && update) {
-      toast(`MineArcade ${update.version} is available`, {
+      toast(`Orbit Launcher ${update.version} is available`, {
         id: TOAST_ID,
         description: `You're running ${update.currentVersion}.`,
         actions: [

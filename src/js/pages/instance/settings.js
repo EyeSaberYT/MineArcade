@@ -109,7 +109,7 @@ export function openInstanceSettings(ctx, { panel: initialPanel = 'general', onC
                 <button class="btn btn-outline" data-duplicate>${icon('copy', 'icon-sm')} Duplicate</button>
               </div>
               <div class="row-between">
-                <div><b>Delete instance</b><p class="hint">Removes it from MineArcade, and optionally its files.</p></div>
+                <div><b>Delete instance</b><p class="hint">Removes it from Orbit Launcher, and optionally its files.</p></div>
                 <button class="btn btn-danger" data-delete>${icon('trash', 'icon-sm')} Delete</button>
               </div>
             </div>

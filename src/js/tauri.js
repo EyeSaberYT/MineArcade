@@ -8,7 +8,7 @@ export const isTauri = Boolean(window.__TAURI__);
 /** Invoke a backend command. Rejections are plain strings from the Rust side. */
 export function invoke(command, args) {
   if (!T.core) {
-    return Promise.reject(new Error(`The MineArcade backend isn't running (${command}).`));
+    return Promise.reject(new Error(`The Orbit Launcher backend isn't running (${command}).`));
   }
   return T.core.invoke(command, args);
 }

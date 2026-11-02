@@ -68,7 +68,7 @@ export function mountWorlds(pane, ctx) {
           html`<div class="inst-note inst-note-warn">
             ${icon('alert', 'icon-sm')}
             <div><strong>This instance is running</strong>
-              <div>Minecraft writes to its world folders while it plays, so MineArcade can't back up or restore one until the game closes. Backups can still be deleted.</div></div>
+              <div>Minecraft writes to its world folders while it plays, so Orbit Launcher can't back up or restore one until the game closes. Backups can still be deleted.</div></div>
           </div>`}
 
           <section class="stack-sm">

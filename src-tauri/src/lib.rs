@@ -31,7 +31,7 @@ pub fn run() {
     let state = match state::AppState::new(paths) {
         Ok(state) => state,
         Err(error) => {
-            eprintln!("MineArcade failed to start: {error}");
+            eprintln!("Orbit Launcher failed to start: {error}");
             std::process::exit(1);
         }
     };
@@ -62,7 +62,7 @@ pub fn run() {
         .manage(state)
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_title("MineArcade");
+                let _ = window.set_title("Orbit Launcher");
             }
             // Screenshots and world icons are drawn with `asset:` URLs, and the
             // data root is only known at runtime (`MINEARCADE_DATA_DIR` can put it
@@ -71,7 +71,7 @@ pub fn run() {
             let root = app.state::<state::AppState>().paths.root.clone();
             app.asset_protocol_scope().allow_directory(&root, true)?;
             log::info!(
-                "MineArcade {} starting on {} ({})",
+                "Orbit Launcher {} starting on {} ({})",
                 env!("CARGO_PKG_VERSION"),
                 std::env::consts::OS,
                 std::env::consts::ARCH
@@ -164,7 +164,7 @@ pub fn run() {
             commands::skin::skin_upload,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running MineArcade");
+        .expect("error while running Orbit Launcher");
 }
 
 /// Convenience for tests and future CLI entry points.

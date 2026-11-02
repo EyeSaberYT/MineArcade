@@ -10,7 +10,7 @@ import { checkForUpdates, installUpdate, relaunchApp } from '../updater.js';
 
 const JAVA_MAJORS = [8, 16, 17, 21, 25];
 const RELEASES_URL = 'https://github.com/EyeSaberYT/MineArcade/releases/latest';
-const DEFAULT_SERVER = 'play.minearcade.org';
+const DEFAULT_SERVER = 'farms.minearcade.org';
 
 const PANELS = [
   { id: 'appearance', label: 'Appearance', icon: 'sun', help: 'Theme and display' },
@@ -60,12 +60,12 @@ function mount(root, initialPanel, close) {
     setHtml(
       root,
       html`
-        <section class="settings-popup" aria-label="MineArcade settings">
+        <section class="settings-popup" aria-label="Orbit Launcher settings">
           <header class="settings-popup-header">
             <div class="grow">
               <p class="eyebrow" style="color:var(--primary)">Launcher preferences</p>
               <h1>Settings</h1>
-              <p class="small muted">Configure MineArcade for your setup.</p>
+              <p class="small muted">Configure Orbit Launcher for your setup.</p>
             </div>
             <button class="btn btn-ghost btn-icon" data-close-settings aria-label="Close settings">${icon('x')}</button>
           </header>
@@ -120,7 +120,7 @@ function mount(root, initialPanel, close) {
           </div>
           <div style="margin-top:28px">
             <h3 style="font-size:14px">Accent color</h3>
-            <p class="small muted" style="margin:4px 0 12px">Choose the highlight color used across MineArcade.</p>
+            <p class="small muted" style="margin:4px 0 12px">Choose the highlight color used across Orbit Launcher.</p>
             <div class="accent-choices" role="radiogroup" aria-label="Accent color">
               ${ACCENTS.map(
                 (a) => html`<button class="accent-choice ${accent.id === a.id ? 'active' : ''}" role="radio" aria-checked="${accent.id === a.id}" data-accent="${a.id}">
@@ -146,9 +146,9 @@ function mount(root, initialPanel, close) {
         html`
           <div class="settings-rows">
             ${toggle('showSnapshots', 'Show snapshots and betas', 'Include unreleased Minecraft versions in version pickers.')}
-            ${toggle('checkUpdatesOnStart', 'Check for updates on launch', 'Look for a newer MineArcade release when the launcher starts.')}
-            ${toggle('closeOnLaunch', 'Close launcher when game starts', 'Quit MineArcade as soon as Minecraft opens.')}
-            ${toggle('keepLauncherOpen', 'Keep launcher open', 'Keep MineArcade available while Minecraft is running. When off, it minimizes instead.')}
+            ${toggle('checkUpdatesOnStart', 'Check for updates on launch', 'Look for a newer Orbit Launcher release when the launcher starts.')}
+            ${toggle('closeOnLaunch', 'Close launcher when game starts', 'Quit Orbit Launcher as soon as Minecraft opens.')}
+            ${toggle('keepLauncherOpen', 'Keep launcher open', 'Keep Orbit Launcher available while Minecraft is running. When off, it minimizes instead.')}
             ${toggle('discordRichPresence', 'Discord Rich Presence', 'Show the instance you’re playing on your Discord profile while Discord is open.')}
             <div class="settings-row">
               <span class="grow"><b>Concurrent downloads</b><small>How many files to fetch in parallel.</small></span>
@@ -165,7 +165,7 @@ function mount(root, initialPanel, close) {
       section(
         'cpu',
         'Java',
-        'MineArcade can manage the right runtime for each Minecraft version.',
+        'Orbit Launcher can manage the right runtime for each Minecraft version.',
         html`
           <div class="settings-java-grid">
             <div class="stack">
@@ -180,7 +180,7 @@ function mount(root, initialPanel, close) {
                   <button class="btn btn-ghost btn-sm" data-java-refresh>${icon('refresh', 'icon-sm')} Refresh</button>
                 </div>
                 ${runtimes.length === 0
-                  ? html`<p class="settings-empty">No Java runtimes detected. MineArcade will download one when a game needs it.</p>`
+                  ? html`<p class="settings-empty">No Java runtimes detected. Orbit Launcher will download one when a game needs it.</p>`
                   : html`<ul class="runtime-list">${runtimes.map(
                       (runtime) => html`<li class="runtime-row">
                         <span style="color:var(--primary)">${icon('terminal', 'icon-sm')}</span>
@@ -196,7 +196,7 @@ function mount(root, initialPanel, close) {
             <div class="runtime-install-card">
               <span class="settings-section-icon">${icon('download', 'icon-sm')}</span>
               <h3 style="margin-top:12px;font-size:14px">Add a runtime</h3>
-              <p class="tiny muted" style="margin-top:4px;line-height:1.5">Download a supported Java runtime directly into MineArcade.</p>
+              <p class="tiny muted" style="margin-top:4px;line-height:1.5">Download a supported Java runtime directly into Orbit Launcher.</p>
               <select class="input" style="margin-top:14px" data-java-major>
                 ${JAVA_MAJORS.map((major) => html`<option value="${major}" ${String(major) === installMajor ? 'selected' : ''}>Java ${major}</option>`)}
               </select>
@@ -232,7 +232,7 @@ function mount(root, initialPanel, close) {
       return section(
         'folder',
         'Storage',
-        'MineArcade’s local files and cache locations.',
+        'Orbit Launcher’s local files and cache locations.',
         html`<div class="settings-rows">${rows.map(
           ([label, path]) => html`<div class="settings-row">
             <span class="grow"><b>${label}</b><small class="truncate" title="${path}">${path}</small></span>
@@ -250,19 +250,19 @@ function mount(root, initialPanel, close) {
         const percent = progress.total ? Math.round((progress.downloaded / progress.total) * 100) : null;
         body = html`<div class="stack-sm">
           <div class="row-between small">
-            <span>Downloading MineArcade ${update?.version ?? ''}</span>
+            <span>Downloading Orbit Launcher ${update?.version ?? ''}</span>
             <span class="muted">${progress.total ? `${formatBytes(progress.downloaded)} / ${formatBytes(progress.total)}` : formatBytes(progress.downloaded)}</span>
           </div>
           <div class="progress-track"><div class="progress-fill ${percent === null ? 'indeterminate' : ''}" style="${percent !== null ? `width:${percent}%` : ''}"></div></div>
         </div>`;
       } else if (status === 'installed') {
         body = html`<div class="row-between" style="flex-wrap:wrap">
-          <p class="small">MineArcade ${update?.version ?? ''} is installed. Restart to finish updating.</p>
+          <p class="small">Orbit Launcher ${update?.version ?? ''} is installed. Restart to finish updating.</p>
           <button class="btn btn-primary" data-restart>${icon('rotate-ccw')} Restart now</button>
         </div>`;
       } else if (status === 'available' && update) {
         body = html`<div class="row-between" style="flex-wrap:wrap">
-          <p class="small">MineArcade ${update.version} is ready to install.</p>
+          <p class="small">Orbit Launcher ${update.version} is ready to install.</p>
           <button class="btn btn-primary" data-install-update>${icon('download')} Update now</button>
         </div>`;
       } else {
@@ -273,7 +273,7 @@ function mount(root, initialPanel, close) {
               ? `You're on the latest version (${version}).`
               : status === 'error'
                 ? (error ?? 'Update check failed.')
-                : 'Check for the latest MineArcade release.';
+                : 'Check for the latest Orbit Launcher release.';
         body = html`<div class="row-between" style="flex-wrap:wrap">
           <p class="small muted">${message}</p>
           <button class="btn btn-outline" data-check-updates ${status === 'checking' ? 'disabled' : ''}>
@@ -284,7 +284,7 @@ function mount(root, initialPanel, close) {
       return section(
         'refresh',
         'Updates',
-        'Keep MineArcade up to date.',
+        'Keep Orbit Launcher up to date.',
         html`${body}<p class="tiny muted" style="margin-top:16px">Need an installer? <a data-open-url="${RELEASES_URL}">Browse releases ${icon('external', 'icon-sm')}</a></p>`,
       );
     },
@@ -293,7 +293,7 @@ function mount(root, initialPanel, close) {
       const info = store.state.info;
       return section(
         'info',
-        'About MineArcade',
+        'About Orbit Launcher',
         'Free, ad-free, and built for the MineArcade server.',
         html`
           ${info
@@ -303,7 +303,7 @@ function mount(root, initialPanel, close) {
                 ['Application', info.name],
               ].map(([label, value]) => html`<div class="about-tile"><small>${label}</small><strong>${value}</strong></div>`)}</div>`
             : html`<p class="small muted">Loading application information…</p>`}
-          <p class="tiny muted" style="margin-top:16px;line-height:1.6">Downloaded game assets and metadata are cached under the data directory listed in Storage. MineArcade is MIT-licensed.</p>`,
+          <p class="tiny muted" style="margin-top:16px;line-height:1.6">Downloaded game assets and metadata are cached under the data directory listed in Storage. Orbit Launcher is MIT-licensed.</p>`,
       );
     },
   };

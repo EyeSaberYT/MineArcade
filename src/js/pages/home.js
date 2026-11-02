@@ -85,7 +85,7 @@ export function render(root) {
           <div class="row-between">
             <div class="row">
               <span class="metric-icon" style="width:34px;height:34px">${icon('sparkles', 'icon-sm')}</span>
-              <div><div class="bold">New to MineArcade?</div><div class="small muted">Three quick steps to get set up.</div></div>
+              <div><div class="bold">New to Orbit Launcher?</div><div class="small muted">Three quick steps to get set up.</div></div>
             </div>
             <button class="btn btn-ghost btn-icon btn-sm" data-dismiss-guide aria-label="Dismiss">${icon('x')}</button>
           </div>

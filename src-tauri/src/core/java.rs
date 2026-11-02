@@ -419,7 +419,7 @@ pub async fn install(
             .ok_or_else(|| {
                 LauncherError::msg(format!(
                     "Mojang doesn't publish a Java {required} runtime for this platform yet. \
-                     Install a JDK {required} yourself and point MineArcade at it in Settings."
+                     Install a JDK {required} yourself and point Orbit Launcher at it in Settings."
                 ))
             })?
     };

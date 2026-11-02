@@ -53,7 +53,7 @@ export function openImportLauncherDialog() {
   const modal = openModal({
     title: 'Import from another launcher',
     description:
-      'MineArcade copies the game folders you already have into new instances. Nothing in the original launcher is moved, renamed or changed.',
+      'Orbit Launcher copies the game folders you already have into new instances. Nothing in the original launcher is moved, renamed or changed.',
     size: 'xl',
     body: html`
       <div class="import-notes" data-notes hidden></div>
@@ -191,7 +191,7 @@ export function openImportLauncherDialog() {
         html`<div class="empty">
           <div class="empty-icon">${icon('package', 'icon-lg')}</div>
           <h3>No instances were detected</h3>
-          <p>Pick a launcher’s data folder (or one instance folder) and MineArcade will read it from there.</p>
+          <p>Pick a launcher’s data folder (or one instance folder) and Orbit Launcher will read it from there.</p>
         </div>`,
       );
     } else {

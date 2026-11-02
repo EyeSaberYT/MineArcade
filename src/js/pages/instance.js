@@ -224,7 +224,7 @@ export function render(root, params) {
       title: `Delete “${instance.name}”?`,
       size: 'sm',
       body: html`
-        <p class="muted" style="line-height:1.5">This removes the instance from MineArcade.</p>
+        <p class="muted" style="line-height:1.5">This removes the instance from Orbit Launcher.</p>
         <label class="switch-row">
           <input type="checkbox" data-files checked>
           <span class="switch"></span>

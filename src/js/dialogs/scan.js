@@ -39,7 +39,7 @@ function summary(report, flagged) {
         </div>
         ${report.critical > 0 && html`<div class="small" style="margin-top:4px">Remove or replace the files below before playing this instance.</div>`}
         ${!report.provenanceChecked &&
-        html`<div class="small scan-dim" style="margin-top:4px">MineArcade was offline or Modrinth was rate limiting, so tampering could not be checked this time. The content scan above still applies.</div>`}
+        html`<div class="small scan-dim" style="margin-top:4px">Orbit Launcher was offline or Modrinth was rate limiting, so tampering could not be checked this time. The content scan above still applies.</div>`}
         ${flagged > 0 && report.critical === 0 && report.warnings === 0 && html`<div class="small scan-dim" style="margin-top:4px">Only informational notes below.</div>`}
       </div>
     </div>`;

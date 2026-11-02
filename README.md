@@ -1,13 +1,14 @@
-# MineArcade Launcher
+# Orbit Launcher
 
-The official launcher for the **MineArcade** network (`play.minearcade.org`): a fast, ad-free
+The Minecraft launcher with **Orbit Client** built in, and the official launcher for the **MineArcade**
+network (`farms.minearcade.org`). It was called the MineArcade Launcher before. A fast, ad-free
 Minecraft: Java Edition launcher built with [Tauri 2](https://tauri.app). It has a Rust core and a
 plain HTML/CSS/JavaScript interface, with no frontend build step.
 
 ## Features
 
 **Playing**
-- One-click **Join MineArcade**: launches straight into `play.minearcade.org`, using Quick Play on 1.20+ and `--server` on older versions.
+- One-click **Join MineArcade**: launches straight into `farms.minearcade.org`, using Quick Play on 1.20+ and `--server` on older versions.
   New instances get the server added to their in-game multiplayer list automatically.
 - **Microsoft sign-in** (device code flow) with multiple accounts and automatic token refresh.
 - Every Minecraft version: releases, snapshots and old betas/alphas.
@@ -59,6 +60,11 @@ scripts/                 Icon generation, vendoring, JS checks
 
 Launcher data lives in `%APPDATA%\.minearcade` (override with `MINEARCADE_DATA_DIR`).
 
+**Why some names still say MineArcade:** the data folder, the `MINEARCADE_*` variables, the app identifier
+and `productName` in `tauri.conf.json` are unchanged on purpose. The Windows installer names its install
+folder and uninstall entry after `productName`, so renaming it would install Orbit Launcher next to the old
+MineArcade instead of updating it. The window title and everything in the app say Orbit Launcher.
+
 ## Requirements (Windows)
 
 1. **Microsoft C++ Build Tools** with the "Desktop development with C++" workload.
@@ -79,7 +85,7 @@ cd src-tauri; cargo test
 
 ## Microsoft sign-in
 
-MineArcade signs in with its own Azure application (client) ID, which Mojang has allow-listed.
+Orbit Launcher signs in with MineArcade's Azure application (client) ID, which Mojang has allow-listed.
 The ID is **compiled into the app** and can't be changed from the UI. To build with a different
 registration, set it at build time:
 

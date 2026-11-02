@@ -160,7 +160,7 @@ function mountTopBar() {
       return [{ label: 'Discover content', href: `#${search}` }, { label: currentCrumb() ?? 'Project' }];
     }
     const labels = { home: 'Home', library: 'Library', discover: 'Discover content' };
-    return [{ label: labels[sectionOf(path)] ?? 'MineArcade' }];
+    return [{ label: labels[sectionOf(path)] ?? 'Orbit Launcher' }];
   };
 
   const renderCrumbs = () => {
@@ -388,5 +388,5 @@ async function boot() {
 
 boot().catch((error) => {
   console.error(error);
-  toast('MineArcade failed to start', { kind: 'error', description: errorText(error), duration: 0 });
+  toast('Orbit Launcher failed to start', { kind: 'error', description: errorText(error), duration: 0 });
 });

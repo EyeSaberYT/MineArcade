@@ -65,7 +65,7 @@ export function mountServers(pane, ctx) {
           html`<div class="inst-note inst-note-warn">
             ${icon('alert', 'icon-sm')}
             <div><strong>This instance is running</strong>
-              <div>Minecraft rewrites its server list whenever you change it in game, so MineArcade can't save until the game closes. Your edits can stay here until then.</div></div>
+              <div>Minecraft rewrites its server list whenever you change it in game, so Orbit Launcher can't save until the game closes. Your edits can stay here until then.</div></div>
           </div>`}
 
           <div class="row-between">

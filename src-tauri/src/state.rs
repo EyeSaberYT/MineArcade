@@ -69,7 +69,7 @@ impl AppState {
         self.settings.read().await.modrinth_api_url.clone()
     }
 
-    /// Put the featured server (play.minearcade.org by default) at the top of a
+    /// Put the featured server (farms.minearcade.org by default) at the top of a
     /// new instance's in-game multiplayer list. Best effort: a list that can't
     /// be written never stops an instance from being created.
     pub async fn seed_server_list(&self, game_dir: &std::path::Path) {

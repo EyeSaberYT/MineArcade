@@ -436,7 +436,7 @@ pub fn scan_archive(path: &Path, relative_to: &Path) -> Result<FileReport> {
             code: "unreadable".to_string(),
             summary: "Could not be opened".to_string(),
             detail: format!(
-                "MineArcade could not read {file_name}. It may be locked by another \
+                "Orbit Launcher could not read {file_name}. It may be locked by another \
                  process, or the download may have been interrupted."
             ),
             entry: None,
@@ -460,7 +460,7 @@ pub fn scan_archive(path: &Path, relative_to: &Path) -> Result<FileReport> {
                 code: "not_an_archive".to_string(),
                 summary: "Not a readable jar or pack".to_string(),
                 detail: format!(
-                    "MineArcade could not open {file_name} as an archive ({error}). A file \
+                    "Orbit Launcher could not open {file_name} as an archive ({error}). A file \
                      with a .jar or .zip extension that is not really one is worth \
                      checking: renaming an executable is a common way to get someone \
                      to run it by double-clicking."
