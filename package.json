@@ -1,7 +1,7 @@
 {
   "name": "minearcade",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "MineArcade Minecraft launcher (Tauri: Rust + JavaScript)",
   "scripts": {
     "dev": "node scripts/run-tauri.mjs dev",

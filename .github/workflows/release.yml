@@ -78,13 +78,13 @@ jobs:
           updaterJsonPreferNsis: true
           uploadUpdaterSignatures: false
           tagName: ${{ github.ref_name }}
-          releaseName: MineArcade ${{ github.ref_name }}
+          releaseName: Orbit Launcher ${{ github.ref_name }}
           releaseBody: |
             **Install**
             - **Windows:** `MineArcade_*_x64-setup.exe` (or the `.msi`).
             - **Linux:** `MineArcade_*_amd64.AppImage` (`chmod +x` and run), or the `.deb` / `.rpm`.
             - **macOS:** the `.dmg`.
 
-            Already installed? MineArcade updates itself — accept the prompt or use Settings → Updates.
+            Already installed? Orbit Launcher updates itself: accept the prompt or use Settings > Updates.
           releaseDraft: false
           prerelease: false
