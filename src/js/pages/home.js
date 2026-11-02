@@ -206,7 +206,7 @@ export function render(root) {
     if (!stage || !shift) return;
     const width = stage.clientWidth;
     const height = stage.clientHeight;
-    const timing = { duration: 460, easing: 'cubic-bezier(.22,.8,.24,1)' };
+    const timing = { duration: 300, easing: 'cubic-bezier(.22,.8,.24,1)' };
     stage.querySelectorAll('[data-world]').forEach((world) => {
       const to = Number(world.dataset.offset);
       let from = before.get(world.dataset.world);
@@ -227,11 +227,11 @@ export function render(root) {
       world.animate(frames, timing);
     });
     stage.querySelectorAll('.world-label').forEach((label) =>
-      label.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, delay: 240, fill: 'backwards' }),
+      label.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, delay: 150, fill: 'backwards' }),
     );
     stage.querySelector('.play-title')?.animate(
       [{ opacity: 0, transform: `translateX(${shift > 0 ? 18 : -18}px)` }, { opacity: 1, transform: 'none' }],
-      { duration: 320, easing: 'ease-out' },
+      { duration: 220, easing: 'ease-out' },
     );
   };
 
@@ -248,7 +248,7 @@ export function render(root) {
           { transform: 'translate(-50%, -50%) scale(1)', filter: 'brightness(1)' },
           { transform: 'translate(-50%, -50%) scale(0.15)', filter: 'brightness(3)', opacity: 0.2 },
         ],
-        { duration: 240, easing: 'cubic-bezier(.55,0,.8,.4)', fill: 'forwards' },
+        { duration: 160, easing: 'cubic-bezier(.55,0,.8,.4)', fill: 'forwards' },
       ).finished.catch(() => {});
     }
     setPlanetKind(id, kindId);
@@ -261,7 +261,7 @@ export function render(root) {
         { transform: 'translate(-50%, -50%) scale(1.12)', filter: 'brightness(1.3)', opacity: 1, offset: 0.65 },
         { transform: 'translate(-50%, -50%) scale(1)', filter: 'brightness(1)', opacity: 1 },
       ],
-      { duration: 520, easing: 'cubic-bezier(.2,.8,.25,1)' },
+      { duration: 340, easing: 'cubic-bezier(.2,.8,.25,1)' },
     );
     // The shockwave: a ring in the new world's atmosphere colour, sized to the world.
     const burst = document.createElement('span');
@@ -274,7 +274,7 @@ export function render(root) {
           { transform: 'translate(-50%, -50%) scale(0.3)', opacity: 0.95 },
           { transform: 'translate(-50%, -50%) scale(1.9)', opacity: 0 },
         ],
-        { duration: 650, easing: 'cubic-bezier(.1,.7,.3,1)' },
+        { duration: 450, easing: 'cubic-bezier(.1,.7,.3,1)' },
       )
       .finished.finally(() => burst.remove());
   };
@@ -361,7 +361,7 @@ export function render(root) {
       if (!event.target.closest('[data-stage]') || Math.abs(event.deltaY) < 4) return;
       event.preventDefault();
       const now = performance.now();
-      if (now - wheelLock < 220) return;
+      if (now - wheelLock < 160) return;
       wheelLock = now;
       spin(event.deltaY > 0 ? 1 : -1);
     },
