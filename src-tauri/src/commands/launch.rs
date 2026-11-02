@@ -20,17 +20,20 @@ pub async fn launch_instance(
     id: String,
     quick_play: Option<QuickPlay>,
 ) -> Result<LaunchedProcess> {
-    // Make sure the loader profile is installed before we try to resolve it.
-    let mut instance = state.instances.read().await.get(&id)?.clone();
-    if let Some(quick_play) = quick_play {
-        instance.settings.quick_play = quick_play;
-    }
-
     {
         let running = state.running.read().await;
         if running.contains(&id) {
             return Err(LauncherError::msg("That instance is already running."));
         }
+    }
+
+    // Orbit Client plays its newest release.
+    if crate::commands::orbit::is_orbit(state.instances.read().await.get(&id)?) {
+        crate::commands::orbit::prepare_launch(&app, &state, &id).await?;
+    }
+    let mut instance = state.instances.read().await.get(&id)?.clone();
+    if let Some(quick_play) = quick_play {
+        instance.settings.quick_play = quick_play;
     }
 
     let account = active_account(&state).await?;

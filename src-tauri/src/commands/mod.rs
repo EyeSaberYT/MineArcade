@@ -7,6 +7,7 @@ pub mod instance;
 pub mod java;
 pub mod launch;
 pub mod modrinth;
+pub mod orbit;
 pub mod scan;
 pub mod screenshots;
 pub mod servers;

@@ -102,6 +102,13 @@ export const launch = {
   stop: (id) => invoke('launch_stop', { id }),
 };
 
+export const orbit = {
+  /** { instanceId, version }: the managed Orbit Client instance (null when not set up) and its jar's release tag. */
+  status: () => invoke('orbit_client_status'),
+  /** Creates or repairs the Orbit Client instance (Fabric, Fabric API, newest jar). Resolves with the Instance. */
+  install: () => invoke('orbit_client_install'),
+};
+
 export const modrinth = {
   /**
    * Search a catalog. filters: { query, projectType?, gameVersion?, loader?, categories[], index? }.

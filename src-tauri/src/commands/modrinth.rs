@@ -715,6 +715,10 @@ async fn check_updates(state: &AppState, instance_id: &str) -> Result<Vec<Update
         if installed.project_id.is_empty() {
             continue;
         }
+        // Orbit Client updates from its GitHub releases on launch.
+        if installed.project_id == crate::commands::orbit::PROJECT_ID {
+            continue;
+        }
         let is_cf = installed.project_id.starts_with("cf:");
 
         if installed.project_type == "modpack" {

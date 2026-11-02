@@ -1,8 +1,10 @@
-// Home: the MineArcade server hero, "continue playing", stats and recent instances.
+// Home: the Orbit Client hero, the MineArcade server hero, "continue playing", stats and recent instances.
 import {
   featuredServer,
   joinFeaturedServer,
   launchInstance,
+  orbitInstance,
+  playOrbitClient,
   spotlightInstance,
   stopInstance,
 } from '../actions.js';
@@ -43,6 +45,9 @@ export function render(root) {
     const runningCount = instances.filter((i) => store.state.running.has(i.id)).length;
     const modCount = instances.reduce((sum, i) => sum + i.modCount, 0);
     const guideDismissed = prefs.get('home.guideDismissed', false);
+    const orbit = orbitInstance();
+    const orbitRunning = orbit && store.state.running.has(orbit.id);
+    const orbitBusy = store.state.orbitInstalling || (orbit && store.state.launching.has(orbit.id));
 
     setHtml(
       root,
@@ -57,6 +62,31 @@ export function render(root) {
             <button class="btn btn-primary" data-new>${icon('plus')} New instance</button>
           </div>
         </header>
+
+        <section class="orbit-hero">
+          <div class="orbit-art" aria-hidden="true">
+            <span class="orbit-corona"></span>
+            <span class="orbit-moon"></span>
+            <span class="orbit-ring"><span class="orbit-dot"></span></span>
+          </div>
+          <div class="orbit-hero-body">
+            <p class="eyebrow">Orbit Client</p>
+            <h2>Play <span>Orbit Client</span></h2>
+            <p class="orbit-hero-desc">The Orbit mod menu, HUD, cosmetics and cloth capes on Fabric 1.21.11. It updates itself every time you play.</p>
+            <div class="row-wrap" style="gap:10px;margin-top:20px">
+              <div class="hero-launch ${orbitRunning ? 'is-running' : ''}" style="margin-top:0">
+                ${orbitRunning
+                  ? html`<button class="hero-launch-main" data-stop="${orbit.id}">${icon('square')}<span>STOP<small>Orbit Client is running</small></span></button>`
+                  : html`<button class="hero-launch-main" data-orbit-play ${orbitBusy ? 'disabled' : ''}>
+                      ${orbitBusy ? spinner() : icon('play')}
+                      <span>${store.state.orbitInstalling ? 'INSTALLING…' : orbitBusy ? 'STARTING…' : orbit ? 'PLAY' : 'INSTALL & PLAY'}<small>${orbit ? `Fabric ${orbit.gameVersion} · ${orbit.modCount} mods` : 'Sets up Fabric, Fabric API and Orbit Client'}</small></span>
+                    </button>`}
+              </div>
+              ${server && !orbitRunning && html`<button class="btn btn-outline orbit-join" data-orbit-join ${orbitBusy ? 'disabled' : ''}>${icon('server', 'icon-sm')} Join ${server}</button>`}
+              ${orbit && html`<button class="btn btn-ghost orbit-join" data-go="/instance/${orbit.id}">Manage</button>`}
+            </div>
+          </div>
+        </section>
 
         ${server &&
         html`<section class="arcade-hero">
@@ -187,6 +217,8 @@ export function render(root) {
         { align: 'end' },
       );
     }
+    if (target.closest('[data-orbit-play]')) return playOrbitClient();
+    if (target.closest('[data-orbit-join]')) return playOrbitClient({ type: 'multiplayer', address: featuredServer() });
     const join = target.closest('[data-join]');
     if (join) return joinFeaturedServer(join.dataset.join);
     const play = target.closest('[data-play]');
@@ -213,5 +245,5 @@ export function render(root) {
   wireInstanceList(root);
 
   draw();
-  return store.on(['instances', 'running', 'launching', 'settings', 'instancesLoaded'], draw);
+  return store.on(['instances', 'running', 'launching', 'settings', 'instancesLoaded', 'orbitInstalling'], draw);
 }

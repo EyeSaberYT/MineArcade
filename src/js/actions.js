@@ -173,6 +173,39 @@ export function joinFeaturedServer(id) {
   return launchInstance(id, address ? { type: 'multiplayer', address } : undefined);
 }
 
+/** The managed Orbit Client instance (tagged by the backend), or null before it's set up. */
+export const orbitInstance = () => store.state.instances.find((i) => i.tags?.includes('orbit-client')) ?? null;
+
+/**
+ * Play Orbit Client: set up its instance the first time (Fabric, Fabric API
+ * and the newest Orbit Client jar), then launch. Each launch picks up a newer
+ * Orbit Client release on its own.
+ */
+export async function playOrbitClient(quickPlay) {
+  if (store.state.orbitInstalling) return;
+  if (!activeAccount()) {
+    toast('Sign in with your Microsoft account to play.', { kind: 'warn' });
+    signIn();
+    return;
+  }
+  let instance = orbitInstance();
+  if (!instance) {
+    store.set('orbitInstalling', true);
+    try {
+      await api.orbit.install();
+      await refreshInstances();
+      instance = orbitInstance();
+      toast('Orbit Client is installed', { kind: 'success' });
+    } catch (error) {
+      toast("Orbit Client couldn't be installed", { kind: 'error', description: errorText(error) });
+      return;
+    } finally {
+      store.set('orbitInstalling', false);
+    }
+  }
+  if (instance) return launchInstance(instance.id, quickPlay);
+}
+
 /** The most recently played instance, else the first one, else null. */
 export function spotlightInstance() {
   const list = store.state.instances;

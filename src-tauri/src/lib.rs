@@ -133,6 +133,9 @@ pub fn run() {
 
             commands::scan::scan_instance,
 
+            // ---- orbit client ------------------------------------------------
+            commands::orbit::orbit_client_status,
+            commands::orbit::orbit_client_install,
             // ---- multiplayer server list -----------------------------------
             commands::servers::servers_list,
             commands::servers::servers_save,

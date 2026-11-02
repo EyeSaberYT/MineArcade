@@ -518,6 +518,8 @@ pub struct InstanceSummary {
     pub play_time_secs: u64,
     pub mod_count: usize,
     pub installed: bool,
+    /// Free-form tags; orbit-client marks the managed Orbit Client instance.
+    pub tags: Vec<String>,
 }
 
 /// Build a UI-friendly summary for an instance.
@@ -547,5 +549,6 @@ pub fn summarize(paths: &AppPaths, instance: &Instance) -> InstanceSummary {
         play_time_secs: instance.play_time_secs,
         mod_count,
         installed: minecraft::resolve_cached(paths, instance).is_some(),
+        tags: instance.tags.clone(),
     }
 }
