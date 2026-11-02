@@ -52,8 +52,6 @@ function orbitAt(offset) {
   return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, size: a.size + (b.size - a.size) * f };
 }
 
-const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
 const SHORT_LOADER = { fabric: 'FAB', quilt: 'QLT', forge: 'FRG', neoforge: 'NEO', vanilla: 'VAN' };
 
 /** Orbit Client first, then the rest by last played. */
@@ -202,7 +200,10 @@ export function render(root) {
    */
   const animateOrbit = (before, shift) => {
     const stage = root.querySelector('[data-stage]');
-    if (!stage || !shift || reducedMotion()) return;
+    // Always animated, even with Windows' animation effects off: the player asked for this
+    // move, and the glide is what shows where each world went. Only the ambient motion
+    // (drifting stars, the front world bobbing) follows prefers-reduced-motion.
+    if (!stage || !shift) return;
     const width = stage.clientWidth;
     const height = stage.clientHeight;
     const timing = { duration: 460, easing: 'cubic-bezier(.22,.8,.24,1)' };
@@ -241,7 +242,7 @@ export function render(root) {
   const morphPlanet = async (id, kindId) => {
     const findWorld = () => root.querySelector(`[data-world="${CSS.escape(id)}"]`);
     const old = findWorld();
-    if (old && !reducedMotion()) {
+    if (old) {
       await old.animate(
         [
           { transform: 'translate(-50%, -50%) scale(1)', filter: 'brightness(1)' },
@@ -253,7 +254,7 @@ export function render(root) {
     setPlanetKind(id, kindId);
     draw();
     const world = findWorld();
-    if (!world || reducedMotion()) return;
+    if (!world) return;
     world.animate(
       [
         { transform: 'translate(-50%, -50%) scale(0.15)', filter: 'brightness(3)', opacity: 0.2 },
