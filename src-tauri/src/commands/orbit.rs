@@ -58,11 +58,18 @@ pub fn is_orbit(instance: &Instance) -> bool {
     instance.tags.iter().any(|t| t == TAG)
 }
 
-/// The release's mod jar: `orbit-client-<version>.jar`, not the sources jar.
-fn pick_asset(release: &Release) -> Option<&Asset> {
-    release.assets.iter().find(|a| {
-        a.name.starts_with("orbit-client-") && a.name.ends_with(".jar") && !a.name.ends_with("-sources.jar")
-    })
+/// The release's mod jar for `game_version`: `orbit-client-<version>+<game version>.jar` from
+/// multi-version releases, else a single `orbit-client-<version>.jar`. Never a sources jar.
+fn pick_asset<'a>(release: &'a Release, game_version: &str) -> Option<&'a Asset> {
+    let jars = || {
+        release.assets.iter().filter(|a| {
+            a.name.starts_with("orbit-client-") && a.name.ends_with(".jar") && !a.name.ends_with("-sources.jar")
+        })
+    };
+    let suffix = format!("+{game_version}.jar");
+    jars()
+        .find(|a| a.name.ends_with(&suffix))
+        .or_else(|| jars().find(|a| !a.name.contains('+')))
 }
 
 fn installed_version(instance: &Instance) -> Option<&InstalledProject> {
@@ -140,13 +147,14 @@ pub async fn prepare_launch(app: &AppHandle, state: &AppState, id: &str) -> Resu
 /// the new version, or `None` when it was already current.
 pub async fn update_jar(app: &AppHandle, state: &AppState, id: &str) -> Result<Option<String>> {
     let release: Release = get_json(&state.http, LATEST_RELEASE).await?;
-    let asset = pick_asset(&release)
-        .ok_or_else(|| LauncherError::msg("The latest Orbit Client release has no jar to download."))?;
+    let instance = state.instances.read().await.get(id)?.clone();
+    let asset = pick_asset(&release, &instance.game_version).ok_or_else(|| {
+        LauncherError::msg(format!("The latest Orbit Client release has no jar for Minecraft {}.", instance.game_version))
+    })?;
     if !is_safe_filename(&asset.name) {
         return Err(LauncherError::msg("The Orbit Client release has an unsafe file name."));
     }
 
-    let instance = state.instances.read().await.get(id)?.clone();
     let root = game_dir(&state.paths, &instance);
     let mods = root.join("mods");
     std::fs::create_dir_all(&mods)?;
@@ -214,8 +222,20 @@ mod tests {
             tag_name: "v1.2.0".into(),
             assets: vec![asset("orbit-client-1.2.0-sources.jar"), asset("notes.txt"), asset("orbit-client-1.2.0.jar")],
         };
-        assert_eq!(pick_asset(&release).map(|a| a.name.as_str()), Some("orbit-client-1.2.0.jar"));
-        assert!(pick_asset(&Release { tag_name: "v0".into(), assets: vec![asset("readme.md")] }).is_none());
+        assert_eq!(pick_asset(&release, GAME_VERSION).map(|a| a.name.as_str()), Some("orbit-client-1.2.0.jar"));
+        assert!(pick_asset(&Release { tag_name: "v0".into(), assets: vec![asset("readme.md")] }, GAME_VERSION).is_none());
+    }
+
+    /// Multi-version releases carry a jar per Minecraft version; an instance gets the one for its version.
+    #[test]
+    fn picks_the_jar_for_the_instance_version() {
+        let release = Release {
+            tag_name: "v1.1.0".into(),
+            assets: vec![asset("orbit-client-1.1.0+26.3.jar"), asset("orbit-client-1.1.0+1.21.11.jar"), asset("orbit-client-1.1.0+1.21.11-sources.jar")],
+        };
+        assert_eq!(pick_asset(&release, "1.21.11").map(|a| a.name.as_str()), Some("orbit-client-1.1.0+1.21.11.jar"));
+        assert_eq!(pick_asset(&release, "26.3").map(|a| a.name.as_str()), Some("orbit-client-1.1.0+26.3.jar"));
+        assert!(pick_asset(&release, "1.20.1").is_none(), "no jar for an unsupported version");
     }
 
     /// The tag marks the managed instance; other instances are left alone.
@@ -233,7 +253,7 @@ mod tests {
     async fn the_live_release_has_a_jar() {
         let http = reqwest::Client::new();
         let release: Release = get_json(&http, LATEST_RELEASE).await.expect("latest release");
-        let jar = pick_asset(&release).expect("a mod jar");
+        let jar = pick_asset(&release, GAME_VERSION).expect("a mod jar");
         assert!(jar.digest.as_deref().is_some_and(|d| d.starts_with("sha256:")), "{jar:?}");
     }
 
