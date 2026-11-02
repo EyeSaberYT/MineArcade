@@ -23,7 +23,9 @@
 .play-stage {
   position: relative;
   min-width: 0;
-  overflow: hidden;
+  /* clip, not hidden: worlds gliding past the edge must not make the stage scrollable, or a
+     click or focus can scroll the whole orbit sideways. */
+  overflow: clip;
 }
 
 .play-title {
@@ -71,46 +73,81 @@
   border-color: rgba(157, 180, 255, 0.12);
 }
 
+/* Worlds and their labels live in one layer; pages/home.js places each with a transform. */
+.world-layer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+}
+
+/* Every world is the same 176px box, moved and scaled by transform only, so a spin is
+   composited on the GPU and the planet artwork is never redrawn while it moves. */
 .world {
   position: absolute;
-  width: var(--s);
-  height: var(--s);
+  left: 0;
+  top: 0;
+  width: 176px;
+  height: 176px;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: none;
-  transform: translate(-50%, -50%);
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
   cursor: pointer;
-  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.5));
-  transition: left 0.45s cubic-bezier(.2, .8, .2, 1), top 0.45s cubic-bezier(.2, .8, .2, 1), width 0.45s, height 0.45s, filter 0.2s;
+  pointer-events: auto;
 }
 
-.world:hover:not(.is-front) {
-  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.5)) brightness(1.15);
+.world.is-hidden {
+  pointer-events: none;
 }
 
 .world.is-front {
   z-index: 2;
+}
+
+/* The planet itself: shadowed, and bobbing while in front (inside the moving box, so the
+   bob never fights the glide). */
+.world-body {
+  position: absolute;
+  inset: 0;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.5));
+  transition: filter 0.2s;
+}
+
+.world:hover:not(.is-front) .world-body {
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.5)) brightness(1.15);
+}
+
+.world.is-front .world-body {
   animation: world-bob 7s ease-in-out infinite;
 }
 
-/* The selection ring around the front world. */
-.world.is-front::after {
+@keyframes world-bob {
+  50% { transform: translateY(-3%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .world.is-front .world-body { animation: none; }
+}
+
+/* The selection ring: on every world, shown only in front, fading with the spin. */
+.world::after {
   content: '';
   position: absolute;
   inset: -9%;
   border: 1.5px solid rgba(255, 255, 255, 0.55);
   border-radius: 50%;
   box-shadow: 0 0 30px rgba(190, 170, 255, 0.35);
+  opacity: 0;
+  transition: opacity 0.25s ease-out;
   pointer-events: none;
 }
 
-@keyframes world-bob {
-  50% { transform: translate(-50%, -53%); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .world.is-front { animation: none; }
+.world.is-front::after {
+  opacity: 1;
+  transition-delay: 0.12s;
 }
 
 .planet-layer {
@@ -133,9 +170,8 @@
 /* The shockwave when a world changes kind (pages/home.js morphPlanet). */
 .world-burst {
   position: absolute;
+  inset: 0;
   z-index: 3;
-  width: var(--s);
-  height: var(--s);
   border: 3px solid var(--glow);
   border-radius: 50%;
   box-shadow: 0 0 24px var(--glow), inset 0 0 18px var(--glow);
@@ -146,8 +182,8 @@
   position: absolute;
   right: 6%;
   bottom: 6%;
-  width: 12px;
-  height: 12px;
+  width: 14%;
+  height: 14%;
   border: 2px solid var(--shell);
   border-radius: 50%;
   background: var(--green);
@@ -156,23 +192,24 @@
 
 .world-label {
   position: absolute;
-  transform: translateX(-50%);
+  left: 0;
+  top: 0;
+  width: 160px;
   color: var(--muted);
   font-size: 11px;
   text-align: center;
   white-space: nowrap;
+  will-change: transform, opacity;
   pointer-events: none;
 }
 
 .world-label b {
   display: block;
-  max-width: 130px;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text);
   font-size: 12px;
 }
-
 .play-arrow {
   position: absolute;
   top: 52%;

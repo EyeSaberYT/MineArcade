@@ -1,6 +1,12 @@
 // Play: your instances as planets on one orbit. The selected one sits in front with the
 // bracketed LAUNCH under it; the side panel lists every instance as a telemetry row and
 // shows the selected one's numbers. Orbit Client is always on the orbit, installed or not.
+//
+// The planets are built once and kept: selecting another world only moves them. Each world
+// is a fixed-size box placed with a transform, so a spin is a GPU-composited glide from
+// wherever the world is right now (even mid-spin) to its new slot, and the planet artwork is
+// never redrawn while it moves. Worlds that wrap around a short orbit leave off one end and
+// come back in from the other instead of cutting across the front.
 import {
   featuredServer,
   launchInstance,
@@ -27,30 +33,24 @@ const ORBIT_PLACEHOLDER = {
   placeholder: true,
 };
 
+/** Every world box is this big; slots scale it down. */
+const BASE = 176;
+
 /** Slots on the orbit, by distance from the front: where they sit (% of the stage) and how big. */
 const SLOTS = {
   '-2': { x: 12, y: 63, size: 56 },
   '-1': { x: 28, y: 52, size: 78 },
-  0: { x: 50, y: 42, size: 176 },
+  0: { x: 50, y: 42, size: BASE },
   1: { x: 72, y: 52, size: 78 },
   2: { x: 88, y: 63, size: 56 },
 };
 
-/** Just past either end of the orbit: where worlds fade in from and out to while it spins. */
-const OFF_ORBIT = { x: 3, y: 71, size: 34 };
+/** Just past either end of the orbit, where worlds wait unseen. */
+const offOrbit = (side) => ({ x: side < 0 ? 3 : 97, y: 71, size: 34 });
 
-/** A point anywhere along the orbit, between the slots: offset 0.5 is halfway from the front to the next world. */
-function orbitAt(offset) {
-  const slot = (n) => (Math.abs(n) >= 3 ? { ...OFF_ORBIT, x: n < 0 ? OFF_ORBIT.x : 100 - OFF_ORBIT.x } : SLOTS[n]);
-  const t = Math.max(-3, Math.min(3, offset));
-  const lo = Math.floor(t);
-  const hi = Math.ceil(t);
-  if (lo === hi) return slot(lo);
-  const a = slot(lo);
-  const b = slot(hi);
-  const f = t - lo;
-  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, size: a.size + (b.size - a.size) * f };
-}
+const slotFor = (offset) => (Math.abs(offset) <= 2 ? SLOTS[offset] : offOrbit(offset));
+
+const SPIN = { duration: 320, easing: 'cubic-bezier(.25,.8,.25,1)' };
 
 const SHORT_LOADER = { fabric: 'FAB', quilt: 'QLT', forge: 'FRG', neoforge: 'NEO', vanilla: 'VAN' };
 
@@ -70,6 +70,13 @@ function selectedIndex(list) {
   return Math.max(0, list.findIndex((i) => i.id === id));
 }
 
+/** Each world's place relative to the front, the short way round: 0 is selected, -1 left of it. */
+function offsets(list, index) {
+  const n = list.length;
+  const half = Math.floor(n / 2);
+  return new Map(list.map((instance, i) => [instance.id, ((((i - index) % n) + n + half) % n) - half]));
+}
+
 /** "2h", "3d", "2w": short enough for a telemetry column. */
 function ago(iso) {
   if (!iso) return 'never';
@@ -86,213 +93,206 @@ const memoryGb = (instance) => (instance.settings?.memoryMax ?? 4096) / 1024;
 export function render(root) {
   // Edge to edge: the orbit uses the whole page area, not the padded column other pages use.
   root.classList.add('page-play');
-  const draw = () => {
+  setHtml(
+    root,
+    html`<div class="play">
+      <section class="play-stage" data-stage>
+        <div class="play-title" data-title></div>
+        <div class="play-orbit far" aria-hidden="true"></div>
+        <div class="play-orbit" aria-hidden="true"></div>
+        <div class="world-layer" data-worlds></div>
+        <button class="play-arrow glass" data-spin="-1" aria-label="Previous instance">${icon('chevron-left')}</button>
+        <button class="play-arrow glass is-next" data-spin="1" aria-label="Next instance">${icon('chevron-right')}</button>
+        <div data-launch></div>
+      </section>
+      <aside class="play-side" data-side></aside>
+    </div>`,
+  );
+  const stage = root.querySelector('[data-stage]');
+  const layer = root.querySelector('[data-worlds]');
+  const titleEl = root.querySelector('[data-title]');
+  const launchEl = root.querySelector('[data-launch]');
+  const sideEl = root.querySelector('[data-side]');
+
+  // ---------- The worlds ----------
+
+  /** Per world: its box, its label, and the offset it was last placed at. */
+  const placed = new Map();
+
+  const placement = (offset) => {
+    const slot = slotFor(offset);
+    const cx = (slot.x / 100) * stage.clientWidth;
+    const cy = (slot.y / 100) * stage.clientHeight;
+    const visible = Math.abs(offset) <= 2;
+    return {
+      world: { transform: `translate(${cx - BASE / 2}px, ${cy - BASE / 2}px) scale(${slot.size / BASE})`, opacity: visible ? 1 : 0 },
+      label: { transform: `translate(${cx - 80}px, ${cy + slot.size / 2 + 6}px)`, opacity: visible && offset !== 0 ? 1 : 0 },
+    };
+  };
+
+  const createWorld = (instance) => {
+    const world = document.createElement('button');
+    world.className = 'world';
+    world.dataset.world = instance.id;
+    world.innerHTML = `<span class="world-body"></span><span class="world-live" aria-label="Running" hidden></span>`;
+    const label = document.createElement('span');
+    label.className = 'world-label';
+    label.setAttribute('aria-hidden', 'true');
+    layer.append(world, label);
+    const entry = { world, label, offset: null, kind: null };
+    placed.set(instance.id, entry);
+    return entry;
+  };
+
+  /** Move an element to `to`, gliding from where it is right now (mid-animation included). */
+  const glide = (el, to, via) => {
+    const now = getComputedStyle(el);
+    const from = { transform: now.transform === 'none' ? to.transform : now.transform, opacity: now.opacity };
+    el.getAnimations().forEach((a) => a.cancel());
+    Object.assign(el.style, to);
+    el.animate(via ? [from, ...via, to] : [from, to], SPIN);
+  };
+
+  /** Lay the worlds out for the current selection; animated unless it's the first layout or a resize. */
+  const syncWorlds = (list, index, animate) => {
+    const offs = offsets(list, index);
+    const n = list.length;
+    for (const [id, entry] of placed) {
+      if (!offs.has(id)) {
+        entry.world.remove();
+        entry.label.remove();
+        placed.delete(id);
+      }
+    }
+    for (const instance of list) {
+      const entry = placed.get(instance.id) ?? createWorld(instance);
+      const offset = offs.get(instance.id);
+      const kind = planetOf(instance).kind.id;
+      if (entry.kind !== kind) {
+        entry.world.querySelector('.world-body').innerHTML = String(planet(instance));
+        entry.kind = kind;
+      }
+      entry.world.classList.toggle('is-front', offset === 0);
+      entry.world.classList.toggle('is-hidden', Math.abs(offset) > 2);
+      entry.world.tabIndex = Math.abs(offset) > 2 ? -1 : 0;
+      entry.world.setAttribute('aria-label', `${instance.name}${offset === 0 ? ' (selected)' : ''}`);
+      entry.world.querySelector('.world-live').hidden = !store.state.running.has(instance.id);
+      setHtml(entry.label, html`<b>${instance.name}</b>${instance.gameVersion}`);
+
+      const to = placement(offset);
+      const moved = entry.offset !== null && entry.offset !== offset;
+      if (!animate || !moved) {
+        entry.world.getAnimations().forEach((a) => a.cancel());
+        entry.label.getAnimations().forEach((a) => a.cancel());
+        Object.assign(entry.world.style, to.world);
+        Object.assign(entry.label.style, to.label);
+      } else if (Math.abs(offset - entry.offset) > n / 2) {
+        // Wrapped round a short orbit: out past the end it was nearest, back in from the other.
+        const out = placement(Math.sign(entry.offset) * 3);
+        const back = placement(Math.sign(offset) * 3);
+        glide(entry.world, to.world, [{ ...out.world, offset: 0.5 }, { ...back.world, offset: 0.5 }]);
+        glide(entry.label, to.label, [{ ...out.label, offset: 0.5 }, { ...back.label, offset: 0.5 }]);
+      } else {
+        glide(entry.world, to.world);
+        glide(entry.label, to.label);
+      }
+      entry.offset = offset;
+    }
+  };
+
+  // ---------- Everything around them ----------
+
+  const draw = (animate = false) => {
     const list = worlds();
     const index = selectedIndex(list);
     const selected = list[index];
     const running = store.state.running.has(selected.id);
     const launching = store.state.launching.has(selected.id) || (selected.placeholder && store.state.orbitInstalling);
     const server = featuredServer();
-
-    // The worlds around the selected one, without showing any twice on a short orbit.
-    const reach = Math.min(2, Math.floor((list.length - 1) / 2));
-    const extra = list.length - 1 - reach * 2 > 0 && reach < 2 ? 1 : 0;
-    const shown = [];
-    for (let offset = -reach; offset <= reach + extra; offset++) {
-      shown.push({ offset, instance: list[(index + offset + list.length) % list.length] });
-    }
-
     const status = running ? 'RUNNING' : launching ? 'STARTING' : selected.placeholder ? 'NOT INSTALLED' : 'READY';
+    const titleChanged = titleEl.dataset.id !== selected.id;
+
+    titleEl.dataset.id = selected.id;
+    setHtml(
+      titleEl,
+      html`<small>INSTANCE ${index + 1} / ${list.length}</small>
+        <h1 class="truncate">${selected.name}</h1>
+        <p>Minecraft ${selected.gameVersion} · ${loaderLabel(selected.loader)}${selected.placeholder
+          ? ' · Install to play'
+          : html` · ${selected.modCount} ${selected.modCount === 1 ? 'mod' : 'mods'}`}</p>`,
+    );
+    if (animate && titleChanged) titleEl.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
+
+    root.querySelectorAll('[data-spin]').forEach((arrow) => (arrow.hidden = list.length < 2));
 
     setHtml(
-      root,
-      html`<div class="play">
-        <section class="play-stage" data-stage>
-          <div class="play-title">
-            <small>INSTANCE ${index + 1} / ${list.length}</small>
-            <h1 class="truncate">${selected.name}</h1>
-            <p>Minecraft ${selected.gameVersion} · ${loaderLabel(selected.loader)}${selected.placeholder
-              ? ' · Install to play'
-              : html` · ${selected.modCount} ${selected.modCount === 1 ? 'mod' : 'mods'}`}</p>
+      launchEl,
+      html`<div class="launch-row">
+          <div class="readout">STATUS <b class="${running ? 'is-live' : launching ? 'is-busy' : selected.placeholder ? 'is-warn' : ''}">${status}</b><br>
+            ${selected.placeholder ? 'SETS UP FABRIC + API' : `MODS ${selected.modCount}`}</div>
+          ${running
+            ? html`<button class="launch-btn is-stop" data-stop="${selected.id}">STOP</button>`
+            : html`<button class="launch-btn" data-launch ${launching ? 'disabled' : ''}>
+                ${launching ? spinner() : ''}${selected.placeholder ? 'INSTALL' : 'LAUNCH'}
+              </button>`}
+          <div class="readout">MEM ${selected.placeholder ? '4.0' : memoryGb(selected).toFixed(1)} GB<br>
+            LAST ${selected.lastPlayed ? relativeTime(selected.lastPlayed).toUpperCase() : 'NEVER'}</div>
+        </div>
+        ${server && !running &&
+        html`<button class="join-link" data-join ${launching ? 'disabled' : ''}>${icon('server', 'icon-sm')} Launch into ${server}</button>`}`,
+    );
+
+    const listScroll = sideEl.querySelector('.tele-list')?.scrollTop ?? 0;
+    setHtml(
+      sideEl,
+      html`<section class="side-panel glass">
+          <div class="side-head"><h2>Instances</h2><span>${store.state.instances.length} TOTAL</span></div>
+          <div class="tele-row tele-hdr"><span></span><span>NAME</span><span>VERSION</span><span>MODS</span><span>LAST</span></div>
+          <div class="tele-list">
+            ${list.map((instance) => {
+              const { kind } = planetOf(instance);
+              return html`<button class="tele-row ${instance.id === selected.id ? 'is-on' : ''}" data-select="${instance.id}">
+                <span class="tele-dot" style="background:${kind.atmo}"></span>
+                <span class="tele-name truncate">${instance.name}</span>
+                <span>${instance.gameVersion} ${SHORT_LOADER[instance.loader] ?? ''}</span>
+                <span>${instance.placeholder ? '–' : instance.modCount}</span>
+                <span class="tele-last">${instance.placeholder ? 'new' : ago(instance.lastPlayed)}</span>
+              </button>`;
+            })}
           </div>
-          <div class="play-orbit far" aria-hidden="true"></div>
-          <div class="play-orbit" aria-hidden="true"></div>
-
-          ${shown.map(({ offset, instance }) => {
-            const slot = SLOTS[offset];
-            const live = store.state.running.has(instance.id);
-            return html`<button class="world ${offset === 0 ? 'is-front' : ''}" data-world="${instance.id}" data-offset="${offset}"
-                style="left:${slot.x}%;top:${slot.y}%;--s:${slot.size}px"
-                aria-label="${instance.name}${offset === 0 ? ' (selected)' : ''}">
-                ${planet(instance)}
-                ${live && html`<span class="world-live" aria-label="Running"></span>`}
-              </button>
-              ${offset !== 0 &&
-              html`<span class="world-label" style="left:${slot.x}%;top:calc(${slot.y}% + ${slot.size / 2 + 6}px)">
-                <b>${instance.name}</b>${instance.gameVersion}
-              </span>`}`;
-          })}
-
-          ${list.length > 1 &&
-          html`<button class="play-arrow glass" data-spin="-1" aria-label="Previous instance">${icon('chevron-left')}</button>
-            <button class="play-arrow glass is-next" data-spin="1" aria-label="Next instance">${icon('chevron-right')}</button>`}
-
-          <div class="launch-row">
-            <div class="readout">STATUS <b class="${running ? 'is-live' : launching ? 'is-busy' : selected.placeholder ? 'is-warn' : ''}">${status}</b><br>
-              ${selected.placeholder ? 'SETS UP FABRIC + API' : `MODS ${selected.modCount}`}</div>
-            ${running
-              ? html`<button class="launch-btn is-stop" data-stop="${selected.id}">STOP</button>`
-              : html`<button class="launch-btn" data-launch ${launching ? 'disabled' : ''}>
-                  ${launching ? spinner() : ''}${selected.placeholder ? 'INSTALL' : 'LAUNCH'}
-                </button>`}
-            <div class="readout">MEM ${selected.placeholder ? '4.0' : memoryGb(selected).toFixed(1)} GB<br>
-              LAST ${selected.lastPlayed ? relativeTime(selected.lastPlayed).toUpperCase() : 'NEVER'}</div>
-          </div>
-          ${server && !running &&
-          html`<button class="join-link" data-join ${launching ? 'disabled' : ''}>${icon('server', 'icon-sm')} Launch into ${server}</button>`}
+          <button class="tele-new" data-new>${icon('plus', 'icon-sm')} New instance</button>
         </section>
 
-        <aside class="play-side">
-          <section class="side-panel glass">
-            <div class="side-head"><h2>Instances</h2><span>${store.state.instances.length} TOTAL</span></div>
-            <div class="tele-row tele-hdr"><span></span><span>NAME</span><span>VERSION</span><span>MODS</span><span>LAST</span></div>
-            <div class="tele-list">
-              ${list.map((instance) => {
-                const { kind } = planetOf(instance);
-                return html`<button class="tele-row ${instance.id === selected.id ? 'is-on' : ''}" data-select="${instance.id}">
-                  <span class="tele-dot" style="background:${kind.atmo}"></span>
-                  <span class="tele-name truncate">${instance.name}</span>
-                  <span>${instance.gameVersion} ${SHORT_LOADER[instance.loader] ?? ''}</span>
-                  <span>${instance.placeholder ? '–' : instance.modCount}</span>
-                  <span class="tele-last">${instance.placeholder ? 'new' : ago(instance.lastPlayed)}</span>
-                </button>`;
-              })}
-            </div>
-            <button class="tele-new" data-new>${icon('plus', 'icon-sm')} New instance</button>
-          </section>
-
-          <section class="side-panel glass">
-            <div class="side-head"><h2>Telemetry</h2><span class="truncate">${selected.name.toUpperCase()}</span></div>
-            <div class="tele-grid">
-              <div class="tele-card"><small>PLAYTIME</small><b>${selected.playTimeSecs ? formatDuration(selected.playTimeSecs) : '0m'}</b></div>
-              <div class="tele-card"><small>MODS</small><b>${selected.placeholder ? '–' : selected.modCount}</b></div>
-              <div class="tele-card"><small>LOADER</small><b>${loaderLabel(selected.loader)}</b></div>
-              <div class="tele-card"><small>VERSION</small><b>${selected.gameVersion}</b></div>
-            </div>
-            <div class="tele-mem">MEMORY ${memoryGb(selected).toFixed(1)} / 16 GB
-              <div class="tele-seg">${Array.from({ length: 16 }, (_, i) => html`<i class="${i < Math.round(memoryGb(selected)) ? 'on' : ''}"></i>`)}</div>
-            </div>
-            ${!selected.placeholder &&
-            html`<div class="side-actions">
-              <button class="btn btn-ghost btn-sm" data-go="/instance/${selected.id}">${icon('settings', 'icon-sm')} Manage</button>
-              <button class="btn btn-ghost btn-sm" data-folder="${selected.id}">${icon('folder', 'icon-sm')} Folder</button>
-            </div>`}
-          </section>
-        </aside>
-      </div>`,
+        <section class="side-panel glass">
+          <div class="side-head"><h2>Telemetry</h2><span class="truncate">${selected.name.toUpperCase()}</span></div>
+          <div class="tele-grid">
+            <div class="tele-card"><small>PLAYTIME</small><b>${selected.playTimeSecs ? formatDuration(selected.playTimeSecs) : '0m'}</b></div>
+            <div class="tele-card"><small>MODS</small><b>${selected.placeholder ? '–' : selected.modCount}</b></div>
+            <div class="tele-card"><small>LOADER</small><b>${loaderLabel(selected.loader)}</b></div>
+            <div class="tele-card"><small>VERSION</small><b>${selected.gameVersion}</b></div>
+          </div>
+          <div class="tele-mem">MEMORY ${memoryGb(selected).toFixed(1)} / 16 GB
+            <div class="tele-seg">${Array.from({ length: 16 }, (_, i) => html`<i class="${i < Math.round(memoryGb(selected)) ? 'on' : ''}"></i>`)}</div>
+          </div>
+          ${!selected.placeholder &&
+          html`<div class="side-actions">
+            <button class="btn btn-ghost btn-sm" data-go="/instance/${selected.id}">${icon('settings', 'icon-sm')} Manage</button>
+            <button class="btn btn-ghost btn-sm" data-folder="${selected.id}">${icon('folder', 'icon-sm')} Folder</button>
+          </div>`}
+        </section>`,
     );
+    const listEl = sideEl.querySelector('.tele-list');
+    if (listEl) listEl.scrollTop = listScroll;
+
+    syncWorlds(list, index, animate);
   };
 
-  /**
-   * Spin the orbit: each world glides along it from where it was to its new place (through the
-   * slots in between, so it follows the ellipse rather than cutting across). Worlds arriving fade
-   * in from the end of the orbit they come from, and the title fades over.
-   */
-  const animateOrbit = (before, shift) => {
-    const stage = root.querySelector('[data-stage]');
-    // Always animated, even with Windows' animation effects off: the player asked for this
-    // move, and the glide is what shows where each world went. Only the ambient motion
-    // (drifting stars, the front world bobbing) follows prefers-reduced-motion.
-    if (!stage || !shift) return;
-    const width = stage.clientWidth;
-    const height = stage.clientHeight;
-    const timing = { duration: 300, easing: 'cubic-bezier(.22,.8,.24,1)' };
-    stage.querySelectorAll('[data-world]').forEach((world) => {
-      const to = Number(world.dataset.offset);
-      let from = before.get(world.dataset.world);
-      // A world that wrapped around a short orbit, or wasn't shown, arrives from the far end instead.
-      const arriving = from === undefined || from - shift !== to;
-      if (arriving) from = to + Math.sign(shift) * Math.max(1, 3 - Math.abs(to));
-      const end = orbitAt(to);
-      const frames = [];
-      for (let step = 0; step <= 8; step++) {
-        const at = orbitAt(from + ((to - from) * step) / 8);
-        const dx = ((at.x - end.x) / 100) * width;
-        const dy = ((at.y - end.y) / 100) * height;
-        frames.push({
-          transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(${at.size / end.size})`,
-          opacity: arriving ? step / 8 : 1,
-        });
-      }
-      world.animate(frames, timing);
-    });
-    stage.querySelectorAll('.world-label').forEach((label) =>
-      label.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, delay: 150, fill: 'backwards' }),
-    );
-    stage.querySelector('.play-title')?.animate(
-      [{ opacity: 0, transform: `translateX(${shift > 0 ? 18 : -18}px)` }, { opacity: 1, transform: 'none' }],
-      { duration: 220, easing: 'ease-out' },
-    );
-  };
-
-  /**
-   * Turn a world into another kind: it collapses into a flash, a shockwave rings out, and the
-   * new world swells back up with a little overshoot. Worlds off the orbit just change.
-   */
-  const morphPlanet = async (id, kindId) => {
-    const findWorld = () => root.querySelector(`[data-world="${CSS.escape(id)}"]`);
-    const old = findWorld();
-    if (old) {
-      await old.animate(
-        [
-          { transform: 'translate(-50%, -50%) scale(1)', filter: 'brightness(1)' },
-          { transform: 'translate(-50%, -50%) scale(0.15)', filter: 'brightness(3)', opacity: 0.2 },
-        ],
-        { duration: 160, easing: 'cubic-bezier(.55,0,.8,.4)', fill: 'forwards' },
-      ).finished.catch(() => {});
-    }
-    setPlanetKind(id, kindId);
-    draw();
-    const world = findWorld();
-    if (!world) return;
-    world.animate(
-      [
-        { transform: 'translate(-50%, -50%) scale(0.15)', filter: 'brightness(3)', opacity: 0.2 },
-        { transform: 'translate(-50%, -50%) scale(1.12)', filter: 'brightness(1.3)', opacity: 1, offset: 0.65 },
-        { transform: 'translate(-50%, -50%) scale(1)', filter: 'brightness(1)', opacity: 1 },
-      ],
-      { duration: 340, easing: 'cubic-bezier(.2,.8,.25,1)' },
-    );
-    // The shockwave: a ring in the new world's atmosphere colour, sized to the world.
-    const burst = document.createElement('span');
-    burst.className = 'world-burst';
-    burst.style.cssText = `left:${world.style.left};top:${world.style.top};--s:${world.style.getPropertyValue('--s')};--glow:${planetOf({ id, tags: [] }).kind.atmo}`;
-    world.after(burst);
-    burst
-      .animate(
-        [
-          { transform: 'translate(-50%, -50%) scale(0.3)', opacity: 0.95 },
-          { transform: 'translate(-50%, -50%) scale(1.9)', opacity: 0 },
-        ],
-        { duration: 450, easing: 'cubic-bezier(.1,.7,.3,1)' },
-      )
-      .finished.finally(() => burst.remove());
-  };
+  // ---------- Actions ----------
 
   const select = (id) => {
-    // Where every world sits now, so the redraw can animate from there.
-    const before = new Map([...root.querySelectorAll('[data-world]')].map((w) => [w.dataset.world, Number(w.dataset.offset)]));
-    let shift = before.get(id);
-    if (shift === undefined) {
-      // Picked from the list while off the orbit: spin the short way round to it.
-      const list = worlds();
-      const n = list.length;
-      const diff = list.findIndex((i) => i.id === id) - selectedIndex(list);
-      shift = ((((diff % n) + n + Math.floor(n / 2)) % n) - Math.floor(n / 2)) || 0;
-    }
+    if (prefs.get('play.selected', null) === id) return;
     prefs.set('play.selected', id);
-    draw();
-    animateOrbit(before, shift);
+    draw(true);
   };
 
   const spin = (direction) => {
@@ -306,6 +306,43 @@ export function render(root) {
     const selected = list[selectedIndex(list)];
     if (selected.tags?.includes('orbit-client')) return playOrbitClient(quickPlay);
     return launchInstance(selected.id, quickPlay);
+  };
+
+  /**
+   * Turn a world into another kind: it collapses into a flash, a shockwave rings out, and the
+   * new world swells back up with a little overshoot.
+   */
+  const morphPlanet = async (id, kindId) => {
+    const entry = placed.get(id);
+    const body = entry?.world.querySelector('.world-body');
+    if (body) {
+      await body
+        .animate([{ transform: 'scale(1)', filter: 'brightness(1)' }, { transform: 'scale(0.15)', filter: 'brightness(3)', opacity: 0.2 }], {
+          duration: 160,
+          easing: 'cubic-bezier(.55,0,.8,.4)',
+          fill: 'forwards',
+        })
+        .finished.catch(() => {});
+    }
+    setPlanetKind(id, kindId);
+    draw();
+    if (!body) return;
+    body.getAnimations().forEach((a) => a.cancel());
+    body.animate(
+      [
+        { transform: 'scale(0.15)', filter: 'brightness(3)', opacity: 0.2 },
+        { transform: 'scale(1.12)', filter: 'brightness(1.3)', opacity: 1, offset: 0.65 },
+        { transform: 'scale(1)', filter: 'brightness(1)', opacity: 1 },
+      ],
+      { duration: 340, easing: 'cubic-bezier(.2,.8,.25,1)' },
+    );
+    const burst = document.createElement('span');
+    burst.className = 'world-burst';
+    burst.style.setProperty('--glow', PLANET_KINDS.find((k) => k.id === kindId)?.atmo ?? '#fff');
+    entry.world.append(burst);
+    burst
+      .animate([{ transform: 'scale(0.3)', opacity: 0.95 }, { transform: 'scale(1.9)', opacity: 0 }], { duration: 450, easing: 'cubic-bezier(.1,.7,.3,1)' })
+      .finished.finally(() => burst.remove());
   };
 
   root.addEventListener('click', (event) => {
@@ -355,10 +392,10 @@ export function render(root) {
 
   // Scroll or arrow keys spin the orbit.
   let wheelLock = 0;
-  root.addEventListener(
+  stage.addEventListener(
     'wheel',
     (event) => {
-      if (!event.target.closest('[data-stage]') || Math.abs(event.deltaY) < 4) return;
+      if (Math.abs(event.deltaY) < 4) return;
       event.preventDefault();
       const now = performance.now();
       if (now - wheelLock < 160) return;
@@ -374,10 +411,18 @@ export function render(root) {
   };
   document.addEventListener('keydown', onKey);
 
+  // Slots are fractions of the stage: re-place (without gliding) when it changes size.
+  const resize = new ResizeObserver(() => {
+    const list = worlds();
+    syncWorlds(list, selectedIndex(list), false);
+  });
+  resize.observe(stage);
+
   draw();
-  const off = store.on(['instances', 'running', 'launching', 'settings', 'orbitInstalling'], draw);
+  const off = store.on(['instances', 'running', 'launching', 'settings', 'orbitInstalling'], () => draw());
   return () => {
     off?.();
+    resize.disconnect();
     document.removeEventListener('keydown', onKey);
   };
 }
