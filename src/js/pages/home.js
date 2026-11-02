@@ -1,189 +1,198 @@
-// Home: the Orbit Client hero, the MineArcade server hero, "continue playing", stats and recent instances.
+// Play: your instances as planets on one orbit. The selected one sits in front with the
+// bracketed LAUNCH under it; the side panel lists every instance as a telemetry row and
+// shows the selected one's numbers. Orbit Client is always on the orbit, installed or not.
 import {
   featuredServer,
-  joinFeaturedServer,
   launchInstance,
   orbitInstance,
   playOrbitClient,
   spotlightInstance,
   stopInstance,
 } from '../actions.js';
-import { instanceCard, wireInstanceList } from '../components/instance-card.js';
+import { PLANET_KINDS, planet, planetOf, setPlanetKind } from '../components/planet.js';
 import { openNewInstanceDialog } from '../dialogs/new-instance.js';
+import { revealInstanceFolder } from './instance/shared.js';
 import { navigate } from '../router.js';
 import { prefs, store } from '../store.js';
-import {
-  emptyState,
-  formatDuration,
-  html,
-  icon,
-  instanceIcon,
-  loaderBadge,
-  loaderLabel,
-  relativeTime,
-  setHtml,
-  showMenu,
-  spinner,
-} from '../ui.js';
+import { formatDuration, html, icon, loaderLabel, relativeTime, setHtml, showMenu, spinner } from '../ui.js';
 
-/** The instance the hero's Join button uses: the one picked with ▾, else the most recent. */
-function heroInstance() {
-  const picked = prefs.get('home.heroInstance', null);
-  return store.state.instances.find((i) => i.id === picked) ?? spotlightInstance();
+/** Stands in for Orbit Client before its instance exists: launching it installs it. */
+const ORBIT_PLACEHOLDER = {
+  id: '__orbit-client',
+  name: 'Orbit Client',
+  gameVersion: '1.21.11',
+  loader: 'fabric',
+  modCount: 0,
+  tags: ['orbit-client'],
+  placeholder: true,
+};
+
+/** Slots on the orbit, by distance from the front: where they sit (% of the stage) and how big. */
+const SLOTS = {
+  '-2': { x: 12, y: 63, size: 56 },
+  '-1': { x: 28, y: 52, size: 78 },
+  0: { x: 50, y: 42, size: 176 },
+  1: { x: 72, y: 52, size: 78 },
+  2: { x: 88, y: 63, size: 56 },
+};
+
+const SHORT_LOADER = { fabric: 'FAB', quilt: 'QLT', forge: 'FRG', neoforge: 'NEO', vanilla: 'VAN' };
+
+/** Orbit Client first, then the rest by last played. */
+function worlds() {
+  const list = [...store.state.instances].sort((a, b) => {
+    const diff = new Date(b.lastPlayed ?? 0) - new Date(a.lastPlayed ?? 0);
+    return diff || a.name.localeCompare(b.name);
+  });
+  const orbit = orbitInstance();
+  if (orbit) return [orbit, ...list.filter((i) => i.id !== orbit.id)];
+  return [ORBIT_PLACEHOLDER, ...list];
 }
 
+function selectedIndex(list) {
+  const id = prefs.get('play.selected', null) ?? spotlightInstance()?.id;
+  return Math.max(0, list.findIndex((i) => i.id === id));
+}
+
+/** "2h", "3d", "2w": short enough for a telemetry column. */
+function ago(iso) {
+  if (!iso) return 'never';
+  const minutes = Math.max(0, (Date.now() - new Date(iso)) / 60000);
+  if (minutes < 60) return `${Math.round(minutes)}m`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h`;
+  if (minutes < 10080) return `${Math.round(minutes / 1440)}d`;
+  if (minutes < 43200) return `${Math.round(minutes / 10080)}w`;
+  return `${Math.round(minutes / 43200)}mo`;
+}
+
+const memoryGb = (instance) => (instance.settings?.memoryMax ?? 4096) / 1024;
+
 export function render(root) {
+  // Edge to edge: the orbit uses the whole page area, not the padded column other pages use.
+  root.classList.add('page-play');
   const draw = () => {
-    const instances = store.state.instances;
-    const spotlight = spotlightInstance();
-    const hero = heroInstance();
+    const list = worlds();
+    const index = selectedIndex(list);
+    const selected = list[index];
+    const running = store.state.running.has(selected.id);
+    const launching = store.state.launching.has(selected.id) || (selected.placeholder && store.state.orbitInstalling);
     const server = featuredServer();
-    const running = spotlight && store.state.running.has(spotlight.id);
-    const launching = spotlight && store.state.launching.has(spotlight.id);
-    const heroRunning = hero && store.state.running.has(hero.id);
-    const heroLaunching = hero && store.state.launching.has(hero.id);
-    const runningCount = instances.filter((i) => store.state.running.has(i.id)).length;
-    const modCount = instances.reduce((sum, i) => sum + i.modCount, 0);
-    const guideDismissed = prefs.get('home.guideDismissed', false);
-    const orbit = orbitInstance();
-    const orbitRunning = orbit && store.state.running.has(orbit.id);
-    const orbitBusy = store.state.orbitInstalling || (orbit && store.state.launching.has(orbit.id));
+
+    // The worlds around the selected one, without showing any twice on a short orbit.
+    const reach = Math.min(2, Math.floor((list.length - 1) / 2));
+    const extra = list.length - 1 - reach * 2 > 0 && reach < 2 ? 1 : 0;
+    const shown = [];
+    for (let offset = -reach; offset <= reach + extra; offset++) {
+      shown.push({ offset, instance: list[(index + offset + list.length) % list.length] });
+    }
+
+    const status = running ? 'RUNNING' : launching ? 'STARTING' : selected.placeholder ? 'NOT INSTALLED' : 'READY';
 
     setHtml(
       root,
-      html`
-        <header class="page-head">
-          <div>
-            <h1>Ready, player one</h1>
-            <p>Everything you need to get back into the game.</p>
+      html`<div class="play">
+        <section class="play-stage" data-stage>
+          <div class="play-title">
+            <small>INSTANCE ${index + 1} / ${list.length}</small>
+            <h1 class="truncate">${selected.name}</h1>
+            <p>Minecraft ${selected.gameVersion} · ${loaderLabel(selected.loader)}${selected.placeholder
+              ? ' · Install to play'
+              : html` · ${selected.modCount} ${selected.modCount === 1 ? 'mod' : 'mods'}`}</p>
           </div>
-          <div class="page-actions">
-            <button class="btn btn-outline" data-go="/discover">${icon('compass')} Browse mods</button>
-            <button class="btn btn-primary" data-new>${icon('plus')} New instance</button>
-          </div>
-        </header>
+          <div class="play-orbit far" aria-hidden="true"></div>
+          <div class="play-orbit" aria-hidden="true"></div>
 
-        <section class="orbit-hero">
-          <div class="orbit-art" aria-hidden="true">
-            <span class="orbit-corona"></span>
-            <span class="orbit-moon"></span>
-            <span class="orbit-ring"><span class="orbit-dot"></span></span>
+          ${shown.map(({ offset, instance }) => {
+            const slot = SLOTS[offset];
+            const live = store.state.running.has(instance.id);
+            return html`<button class="world ${offset === 0 ? 'is-front' : ''}" data-world="${instance.id}"
+                style="left:${slot.x}%;top:${slot.y}%;--s:${slot.size}px"
+                aria-label="${instance.name}${offset === 0 ? ' (selected)' : ''}">
+                ${planet(instance)}
+                ${live && html`<span class="world-live" aria-label="Running"></span>`}
+              </button>
+              ${offset !== 0 &&
+              html`<span class="world-label" style="left:${slot.x}%;top:calc(${slot.y}% + ${slot.size / 2 + 6}px)">
+                <b>${instance.name}</b>${instance.gameVersion}
+              </span>`}`;
+          })}
+
+          ${list.length > 1 &&
+          html`<button class="play-arrow glass" data-spin="-1" aria-label="Previous instance">${icon('chevron-left')}</button>
+            <button class="play-arrow glass is-next" data-spin="1" aria-label="Next instance">${icon('chevron-right')}</button>`}
+
+          <div class="launch-row">
+            <div class="readout">STATUS <b class="${running ? 'is-live' : launching ? 'is-busy' : selected.placeholder ? 'is-warn' : ''}">${status}</b><br>
+              ${selected.placeholder ? 'SETS UP FABRIC + API' : `MODS ${selected.modCount}`}</div>
+            ${running
+              ? html`<button class="launch-btn is-stop" data-stop="${selected.id}">STOP</button>`
+              : html`<button class="launch-btn" data-launch ${launching ? 'disabled' : ''}>
+                  ${launching ? spinner() : ''}${selected.placeholder ? 'INSTALL' : 'LAUNCH'}
+                </button>`}
+            <div class="readout">MEM ${selected.placeholder ? '4.0' : memoryGb(selected).toFixed(1)} GB<br>
+              LAST ${selected.lastPlayed ? relativeTime(selected.lastPlayed).toUpperCase() : 'NEVER'}</div>
           </div>
-          <div class="orbit-hero-body">
-            <p class="eyebrow">Orbit Client</p>
-            <h2>Play <span>Orbit Client</span></h2>
-            <p class="orbit-hero-desc">The Orbit mod menu, HUD, cosmetics and cloth capes on Fabric 1.21.11. It updates itself every time you play.</p>
-            <div class="row-wrap" style="gap:10px;margin-top:20px">
-              <div class="hero-launch ${orbitRunning ? 'is-running' : ''}" style="margin-top:0">
-                ${orbitRunning
-                  ? html`<button class="hero-launch-main" data-stop="${orbit.id}">${icon('square')}<span>STOP<small>Orbit Client is running</small></span></button>`
-                  : html`<button class="hero-launch-main" data-orbit-play ${orbitBusy ? 'disabled' : ''}>
-                      ${orbitBusy ? spinner() : icon('play')}
-                      <span>${store.state.orbitInstalling ? 'INSTALLING…' : orbitBusy ? 'STARTING…' : orbit ? 'PLAY' : 'INSTALL & PLAY'}<small>${orbit ? `Fabric ${orbit.gameVersion} · ${orbit.modCount} mods` : 'Sets up Fabric, Fabric API and Orbit Client'}</small></span>
-                    </button>`}
-              </div>
-              ${server && !orbitRunning && html`<button class="btn btn-outline orbit-join" data-orbit-join ${orbitBusy ? 'disabled' : ''}>${icon('server', 'icon-sm')} Join ${server}</button>`}
-              ${orbit && html`<button class="btn btn-ghost orbit-join" data-go="/instance/${orbit.id}">Manage</button>`}
-            </div>
-          </div>
+          ${server && !running &&
+          html`<button class="join-link" data-join ${launching ? 'disabled' : ''}>${icon('server', 'icon-sm')} Launch into ${server}</button>`}
         </section>
 
-        ${server &&
-        html`<section class="arcade-hero">
-          <div class="arcade-hero-body">
-            <p class="eyebrow">Insert coin to continue</p>
-            <h2>Play on <span>MineArcade</span></h2>
-            <p class="arcade-hero-addr">${icon('server', 'icon-sm')} ${server}</p>
-            <p class="arcade-hero-desc">Jump straight onto the server with your instance.<br>Pick a different one with the arrow.</p>
-            <div class="hero-launch ${heroRunning ? 'is-running' : ''}">
-              ${hero
-                ? heroRunning
-                  ? html`<button class="hero-launch-main" data-stop="${hero.id}">${icon('square')}<span>STOP<small>${hero.name} is running</small></span></button>`
-                  : html`<button class="hero-launch-main" data-join="${hero.id}" ${heroLaunching ? 'disabled' : ''}>
-                      ${heroLaunching ? spinner() : icon('play')}
-                      <span>${heroLaunching ? 'STARTING…' : 'JOIN SERVER'}<small>${hero.name} · ${loaderLabel(hero.loader)} ${hero.gameVersion}</small></span>
-                    </button>`
-                : html`<button class="hero-launch-main" data-setup>${icon('sparkles')}<span>SET UP &amp; PLAY<small>Creates an instance for you</small></span></button>`}
-              ${hero && instances.length > 1 && !heroRunning &&
-              html`<button class="hero-launch-pick" data-pick-hero aria-label="Choose which instance joins" data-tip="Choose instance">${icon('chevron-down')}</button>`}
+        <aside class="play-side">
+          <section class="side-panel glass">
+            <div class="side-head"><h2>Instances</h2><span>${store.state.instances.length} TOTAL</span></div>
+            <div class="tele-row tele-hdr"><span></span><span>NAME</span><span>VERSION</span><span>MODS</span><span>LAST</span></div>
+            <div class="tele-list">
+              ${list.map((instance) => {
+                const { kind } = planetOf(instance);
+                return html`<button class="tele-row ${instance.id === selected.id ? 'is-on' : ''}" data-select="${instance.id}">
+                  <span class="tele-dot" style="background:${kind.atmo}"></span>
+                  <span class="tele-name truncate">${instance.name}</span>
+                  <span>${instance.gameVersion} ${SHORT_LOADER[instance.loader] ?? ''}</span>
+                  <span>${instance.placeholder ? '–' : instance.modCount}</span>
+                  <span class="tele-last">${instance.placeholder ? 'new' : ago(instance.lastPlayed)}</span>
+                </button>`;
+              })}
             </div>
-          </div>
-        </section>`}
+            <button class="tele-new" data-new>${icon('plus', 'icon-sm')} New instance</button>
+          </section>
 
-        ${!guideDismissed &&
-        html`<section class="guide">
-          <div class="row-between">
-            <div class="row">
-              <span class="metric-icon" style="width:34px;height:34px">${icon('sparkles', 'icon-sm')}</span>
-              <div><div class="bold">New to Orbit Launcher?</div><div class="small muted">Three quick steps to get set up.</div></div>
+          <section class="side-panel glass">
+            <div class="side-head"><h2>Telemetry</h2><span class="truncate">${selected.name.toUpperCase()}</span></div>
+            <div class="tele-grid">
+              <div class="tele-card"><small>PLAYTIME</small><b>${selected.playTimeSecs ? formatDuration(selected.playTimeSecs) : '0m'}</b></div>
+              <div class="tele-card"><small>MODS</small><b>${selected.placeholder ? '–' : selected.modCount}</b></div>
+              <div class="tele-card"><small>LOADER</small><b>${loaderLabel(selected.loader)}</b></div>
+              <div class="tele-card"><small>VERSION</small><b>${selected.gameVersion}</b></div>
             </div>
-            <button class="btn btn-ghost btn-icon btn-sm" data-dismiss-guide aria-label="Dismiss">${icon('x')}</button>
-          </div>
-          <div class="guide-steps">
-            <div class="guide-step"><span class="guide-num">01</span><div class="grow"><b>Create a setup</b><small>Choose a version and loader.</small></div><button class="btn btn-ghost btn-sm" data-new>Create ${icon('arrow-right', 'icon-sm')}</button></div>
-            <div class="guide-step"><span class="guide-num">02</span><div class="grow"><b>Add something new</b><small>Mods, shaders and modpacks.</small></div><button class="btn btn-ghost btn-sm" data-go="/discover">Browse ${icon('arrow-right', 'icon-sm')}</button></div>
-            <div class="guide-step"><span class="guide-num">03</span><div class="grow"><b>Jump in</b><small>${spotlight ? `Launch ${spotlight.name}.` : 'Your first instance shows up here.'}</small></div><button class="btn btn-ghost btn-sm" ${spotlight ? html`data-play="${spotlight.id}"` : html`data-go="/library"`}>Play ${icon('arrow-right', 'icon-sm')}</button></div>
-          </div>
-        </section>`}
-
-        ${spotlight
-          ? html`<section class="home-split">
-              <div class="spotlight card">
-                <div class="row" style="align-items:flex-start;gap:16px">
-                  ${instanceIcon(spotlight, 68)}
-                  <div class="grow">
-                    <p class="eyebrow" style="color:var(--primary)">Continue playing</p>
-                    <h2 class="truncate" style="font-size:24px;margin-top:6px">${spotlight.name}</h2>
-                    <div class="row-wrap" style="margin-top:10px;gap:6px">
-                      <span class="badge badge-mono">${spotlight.gameVersion}</span>
-                      ${loaderBadge(spotlight.loader)}
-                      <span class="small muted">${spotlight.modCount} ${spotlight.modCount === 1 ? 'mod' : 'mods'}</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="row-between spotlight-foot">
-                  <span class="small muted row" style="gap:6px">${icon('clock', 'icon-sm')} Last played ${relativeTime(spotlight.lastPlayed)}
-                    ${spotlight.playTimeSecs > 0 && html` · ${formatDuration(spotlight.playTimeSecs)} total`}</span>
-                  <div class="row">
-                    <button class="btn btn-outline" data-go="/instance/${spotlight.id}">Manage</button>
-                    ${running
-                      ? html`<button class="btn btn-danger" data-stop="${spotlight.id}">${icon('square')} Stop</button>`
-                      : html`<button class="btn btn-play" data-play="${spotlight.id}" ${launching ? 'disabled' : ''}>${launching ? spinner() : icon('play')} Play</button>`}
-                  </div>
-                </div>
-              </div>
-              <div class="home-stats">
-                <div class="metric"><span class="metric-icon">${icon('layers')}</span><span><small>Instances</small><strong>${instances.length}</strong></span></div>
-                <div class="metric"><span class="metric-icon">${icon('package')}</span><span><small>Mods installed</small><strong>${modCount}</strong></span></div>
-                <div class="metric ${runningCount ? 'is-live' : ''}"><span class="metric-icon">${icon('gamepad')}</span><span><small>Playing now</small><strong>${runningCount}</strong></span></div>
-              </div>
-            </section>`
-          : store.state.instancesLoaded &&
-            emptyState({
-              iconName: 'sparkles',
-              title: 'Make Minecraft yours',
-              description:
-                'Create an instance for vanilla play, install a modpack, or bring your setup over from another launcher.',
-              actions: html`
-                <button class="btn btn-primary" data-new>${icon('plus')} Create instance</button>
-                <button class="btn btn-outline" data-go="/discover/modpack">${icon('compass')} Explore modpacks</button>
-                <button class="btn btn-outline" data-go="/library?import=launcher">${icon('folder-input')} Import</button>`,
-            })}
-
-        ${instances.length > 0 &&
-        html`<section class="stack">
-          <div class="row-between">
-            <div><p class="eyebrow" style="color:var(--muted)">Your collection</p><h2 style="font-size:19px;margin-top:4px">Recent instances</h2></div>
-            <button class="btn btn-ghost btn-sm" data-go="/library">Open library ${icon('arrow-right', 'icon-sm')}</button>
-          </div>
-          <div class="card-grid" data-list>
-            ${[...instances]
-              .sort((a, b) => new Date(b.lastPlayed ?? 0) - new Date(a.lastPlayed ?? 0))
-              .slice(0, 4)
-              .map((instance) => instanceCard(instance))}
-          </div>
-        </section>`}`,
+            <div class="tele-mem">MEMORY ${memoryGb(selected).toFixed(1)} / 16 GB
+              <div class="tele-seg">${Array.from({ length: 16 }, (_, i) => html`<i class="${i < Math.round(memoryGb(selected)) ? 'on' : ''}"></i>`)}</div>
+            </div>
+            ${!selected.placeholder &&
+            html`<div class="side-actions">
+              <button class="btn btn-ghost btn-sm" data-go="/instance/${selected.id}">${icon('settings', 'icon-sm')} Manage</button>
+              <button class="btn btn-ghost btn-sm" data-folder="${selected.id}">${icon('folder', 'icon-sm')} Folder</button>
+            </div>`}
+          </section>
+        </aside>
+      </div>`,
     );
+  };
+
+  const select = (id) => {
+    prefs.set('play.selected', id);
+    draw();
+  };
+
+  const spin = (direction) => {
+    const list = worlds();
+    if (list.length < 2) return;
+    select(list[(selectedIndex(list) + direction + list.length) % list.length].id);
+  };
+
+  const launchSelected = (quickPlay) => {
+    const list = worlds();
+    const selected = list[selectedIndex(list)];
+    if (selected.tags?.includes('orbit-client')) return playOrbitClient(quickPlay);
+    return launchInstance(selected.id, quickPlay);
   };
 
   root.addEventListener('click', (event) => {
@@ -191,59 +200,74 @@ export function render(root) {
     const go = target.closest('[data-go]');
     if (go) return navigate(go.dataset.go);
     if (target.closest('[data-new]')) return openNewInstanceDialog();
-    if (target.closest('[data-dismiss-guide]')) {
-      prefs.set('home.guideDismissed', true);
-      return draw();
-    }
-    const pick = target.closest('[data-pick-hero]');
-    if (pick) {
-      const current = heroInstance();
-      return showMenu(
-        pick,
-        [
-          { header: 'Join with' },
-          ...[...store.state.instances]
-            .sort((a, b) => new Date(b.lastPlayed ?? 0) - new Date(a.lastPlayed ?? 0))
-            .map((instance) => ({
-              label: `${instance.name} · ${loaderLabel(instance.loader)} ${instance.gameVersion}`,
-              leading: String(instanceIcon(instance, 22)),
-              trail: instance.id === current?.id ? 'Selected' : '',
-              onSelect: () => {
-                prefs.set('home.heroInstance', instance.id);
-                draw();
-              },
-            })),
-        ],
-        { align: 'end' },
-      );
-    }
-    if (target.closest('[data-orbit-play]')) return playOrbitClient();
-    if (target.closest('[data-orbit-join]')) return playOrbitClient({ type: 'multiplayer', address: featuredServer() });
-    const join = target.closest('[data-join]');
-    if (join) return joinFeaturedServer(join.dataset.join);
-    const play = target.closest('[data-play]');
-    if (play) return launchInstance(play.dataset.play);
+    const spinBtn = target.closest('[data-spin]');
+    if (spinBtn) return spin(Number(spinBtn.dataset.spin));
+    const world = target.closest('[data-world]');
+    if (world) return world.classList.contains('is-front') ? launchSelected() : select(world.dataset.world);
+    const row = target.closest('[data-select]');
+    if (row) return select(row.dataset.select);
+    if (target.closest('[data-launch]')) return launchSelected();
+    if (target.closest('[data-join]')) return launchSelected({ type: 'multiplayer', address: featuredServer() });
     const stop = target.closest('[data-stop]');
     if (stop) {
       const instance = store.state.instances.find((i) => i.id === stop.dataset.stop);
       return stopInstance(stop.dataset.stop, instance?.name);
     }
-    if (target.closest('[data-setup]')) {
-      // No instance yet: create one, then go straight to the server.
-      return openNewInstanceDialog({
-        name: 'MineArcade',
-        onCreated: (instance) => {
-          navigate('/');
-          joinFeaturedServer(instance.id);
-        },
-      });
-    }
+    const folder = target.closest('[data-folder]');
+    if (folder) return revealInstanceFolder(folder.dataset.folder);
   });
 
-  // Instance cards (anything inside [data-instance]); the hero and spotlight
-  // buttons above carry no data-instance, so the two handlers never overlap.
-  wireInstanceList(root);
+  // Right-click a world (or its row) to play it, open it, or change what kind of world it is.
+  root.addEventListener('contextmenu', (event) => {
+    const node = event.target.closest('[data-world], [data-select]');
+    const id = node?.dataset.world ?? node?.dataset.select;
+    const instance = id && store.state.instances.find((i) => i.id === id);
+    if (!instance) return;
+    event.preventDefault();
+    const current = planetOf(instance).kind.id;
+    showMenu(node, [
+      { header: instance.name },
+      { label: 'Play', icon: 'play', onSelect: () => launchInstance(instance.id) },
+      { label: 'Select', onSelect: () => select(instance.id) },
+      { label: 'View instance', icon: 'eye', onSelect: () => navigate(`/instance/${instance.id}`) },
+      { separator: true },
+      { header: 'Planet' },
+      ...PLANET_KINDS.map((kind) => ({
+        label: kind.label,
+        trail: kind.id === current ? 'Current' : '',
+        onSelect: () => {
+          setPlanetKind(instance.id, kind.id);
+          draw();
+        },
+      })),
+    ]);
+  });
+
+  // Scroll or arrow keys spin the orbit.
+  let wheelLock = 0;
+  root.addEventListener(
+    'wheel',
+    (event) => {
+      if (!event.target.closest('[data-stage]') || Math.abs(event.deltaY) < 4) return;
+      event.preventDefault();
+      const now = performance.now();
+      if (now - wheelLock < 220) return;
+      wheelLock = now;
+      spin(event.deltaY > 0 ? 1 : -1);
+    },
+    { passive: false },
+  );
+  const onKey = (event) => {
+    if (event.target.closest('input, textarea, select, [contenteditable]') || document.querySelector('.modal')) return;
+    if (event.key === 'ArrowLeft') spin(-1);
+    if (event.key === 'ArrowRight') spin(1);
+  };
+  document.addEventListener('keydown', onKey);
 
   draw();
-  return store.on(['instances', 'running', 'launching', 'settings', 'instancesLoaded', 'orbitInstalling'], draw);
+  const off = store.on(['instances', 'running', 'launching', 'settings', 'orbitInstalling'], draw);
+  return () => {
+    off?.();
+    document.removeEventListener('keydown', onKey);
+  };
 }

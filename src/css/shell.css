@@ -1,0 +1,277 @@
+/* ==========================================================================
+   Orbit shell: deep space behind frosted glass.
+   Loaded after styles.css: it turns the surface tokens see-through, lays out
+   the top bar (tabs, status chips, account) and draws the sky.
+   ========================================================================== */
+
+:root {
+  --shell: #0a0b1e;
+  /* Surfaces are glass: tinted, see-through, blurred where they float. */
+  --bg: transparent;
+  --bg-2: rgba(8, 9, 24, 0.35);
+  --panel: rgba(255, 255, 255, 0.06);
+  --panel-2: rgba(255, 255, 255, 0.1);
+  --panel-3: rgba(255, 255, 255, 0.16);
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --muted: #a3abc9;
+  --faint: #6f789a;
+  --primary: #9db4ff;
+  --primary-2: #7f97ff;
+  --primary-soft: rgba(157, 180, 255, 0.16);
+  --primary-line: rgba(157, 180, 255, 0.45);
+  --primary-glow: rgba(157, 180, 255, 0.3);
+  --amber: #ffc46b;
+  --green: #5ef0b0;
+  /* Floating surfaces (menus, modals, toasts) need more body to stay readable. */
+  --float: rgba(20, 19, 44, 0.82);
+  --glass-blur: blur(18px) saturate(140%);
+  --glass-shadow: 0 10px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* The sky paints the background; a page colour here would cover it. */
+:root,
+body {
+  background: var(--shell);
+}
+
+body {
+  background: none;
+}
+
+/* ---------- The sky ---------- */
+
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 70% 60% at 20% 8%, #3a2a8a 0, transparent 60%),
+    radial-gradient(ellipse 60% 60% at 92% 95%, #0b5a6b 0, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 70% 18%, rgba(90, 42, 122, 0.35) 0, transparent 70%),
+    var(--shell);
+}
+
+.sky-stars {
+  position: absolute;
+  inset: -60px;
+  background-image:
+    radial-gradient(1px 1px at 20px 30px, #fff, transparent),
+    radial-gradient(1px 1px at 90px 120px, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1.5px 1.5px at 160px 60px, #fff, transparent),
+    radial-gradient(1px 1px at 230px 180px, rgba(255, 255, 255, 0.5), transparent);
+  background-size: 260px 220px;
+  opacity: 0.5;
+  animation: sky-drift 140s linear infinite;
+}
+
+.sky-stars.far {
+  background-size: 410px 330px;
+  opacity: 0.28;
+  animation-duration: 240s;
+}
+
+@keyframes sky-drift {
+  to { transform: translate(-260px, -110px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sky-stars { animation: none; }
+}
+
+/* ---------- Glass ---------- */
+
+.glass,
+.card,
+.menu,
+.modal,
+.toast,
+.progress-footer {
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+.glass {
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  box-shadow: var(--glass-shadow);
+}
+
+.card {
+  box-shadow: var(--glass-shadow);
+}
+
+.menu,
+.modal,
+.toast {
+  background: var(--float);
+}
+
+/* ---------- Layout: the bar floats over the page ---------- */
+
+.app {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100vh;
+  padding: 12px 14px 14px;
+  background: none;
+}
+
+.topbar {
+  flex: none;
+  height: 52px;
+  padding: 0 0 0 14px;
+  gap: 14px;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.brand-name {
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+
+.topbar-arrow {
+  border-color: var(--line-strong);
+}
+
+.nav-tabs {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+.nav-tab {
+  padding: 7px 14px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-weight: 600;
+  text-decoration: none !important;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-tab:hover {
+  color: var(--heading);
+  background: var(--panel);
+}
+
+.nav-tab.active {
+  color: var(--heading);
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+/* Free space in the bar drags the window. */
+.topbar-fill {
+  flex: 1;
+  align-self: stretch;
+}
+
+.topbar-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.chip b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.chip a {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+}
+
+.chip.is-off .chip-dot {
+  background: var(--red);
+  box-shadow: 0 0 8px var(--red);
+}
+
+.chip.is-live {
+  border-color: rgba(94, 240, 176, 0.35);
+}
+
+.chip-btn {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chip-btn:hover { color: var(--heading); }
+.chip-btn.danger { color: var(--red); }
+
+.account-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px 0 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--heading);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.account-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.account-btn .avatar { border-radius: 7px; }
+.account-btn.is-signin { padding-left: 10px; color: var(--primary); }
+
+.window-controls {
+  margin-right: 0;
+}
+
+.window-btn:hover {
+  background: var(--panel-2);
+}
+
+/* The page area: no panel of its own, pages sit straight on the sky. */
+.main {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.progress-footer {
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--float);
+}

@@ -1,433 +1,459 @@
-/* Home page, sign-in dialog and other small shared bits. */
+/* ==========================================================================
+   Play: the orbit of instance planets, the bracketed LAUNCH, and the side panel.
+   ========================================================================== */
 
-/* ---------- MineArcade server hero ---------- */
-
-.arcade-hero {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  min-height: 300px;
-  overflow: hidden;
-  padding: 36px 40px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  /* Carrot Estate on the MineArcade server. The image is zoomed to 140% and
-     shifted right (a negative x percentage moves a larger-than-box image
-     rightwards) so its sign sits beside the title, not behind it; the text
-     side is solid dark where the image's left edge would show. */
-  background:
-    linear-gradient(90deg, #0a0912 0%, #0a0912 22%, rgba(10, 9, 18, 0.75) 36%, rgba(10, 9, 18, 0.1) 60%, transparent 100%),
-    linear-gradient(0deg, rgba(10, 9, 18, 0.45) 0%, transparent 40%),
-    url('../assets/hero.jpg') -47.5% 33% / 140% auto no-repeat,
-    #0a0912;
-  color: #ecebff;
+.page.page-play {
+  max-width: none;
+  height: 100%;
+  padding: 0;
 }
 
-.arcade-hero-desc {
-  max-width: 460px;
-  margin-top: 12px;
-  color: #c9c4e6;
-  line-height: 1.5;
-}
-
-/* The big Join button with its ▾ instance picker, like a launcher's Play button. */
-.hero-launch {
-  display: inline-flex;
-  align-items: stretch;
-  margin-top: 22px;
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: 0 10px 28px var(--primary-glow);
-}
-
-.hero-launch-main,
-.hero-launch-pick {
-  border: 0;
-  background: var(--primary);
-  color: var(--on-primary);
-  cursor: pointer;
-  transition: filter 0.15s;
-}
-
-.hero-launch-main {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 24px 13px 20px;
-  font-size: 17px;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  text-align: left;
-}
-
-.hero-launch-main .icon {
-  width: 22px;
-  height: 22px;
-}
-
-.hero-launch-main small {
-  display: block;
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-top: 2px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0;
-  opacity: 0.75;
-}
-
-.hero-launch-pick {
+.play {
   display: grid;
-  place-items: center;
-  width: 44px;
-  border-left: 1px solid rgba(0, 0, 0, 0.18);
-  background: var(--primary-2);
-}
-
-.hero-launch-main:hover:not(:disabled),
-.hero-launch-pick:hover {
-  filter: brightness(var(--hover-brightness));
-}
-
-.hero-launch-main:disabled {
-  opacity: 0.7;
-  cursor: default;
-}
-
-.hero-launch.is-running {
-  box-shadow: 0 10px 28px rgba(255, 73, 110, 0.3);
-}
-
-.hero-launch.is-running .hero-launch-main {
-  background: var(--red);
-  color: #ffffff;
-}
-
-.arcade-hero-body {
-  position: relative;
-  max-width: 640px;
-}
-
-.arcade-hero h2 {
-  margin-top: 8px;
-  font-size: 34px;
-  letter-spacing: -0.01em;
-}
-
-.arcade-hero h2 span {
-  background: linear-gradient(90deg, var(--primary), var(--yellow));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.arcade-hero-addr {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 10px;
-  padding: 5px 11px;
-  border: 1px solid rgba(45, 226, 230, 0.35);
-  border-radius: 999px;
-  background: rgba(45, 226, 230, 0.08);
-  color: #2de2e6;
-  font-family: var(--mono);
-  font-size: 13px;
-}
-
-/* The hero is always dark, so its text and links don't follow the theme. */
-.arcade-hero .muted {
-  color: #b9b5e6;
-}
-
-.arcade-hero a {
-  color: #2de2e6;
-}
-
-.arcade-hero .eyebrow {
-  color: #ffd23f;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-}
-
-.arcade-hero h2 {
-  color: #ffffff;
-}
-
-.arcade-hero :focus-visible {
-  outline-color: #2de2e6;
-}
-
-/* ---------- Getting-started guide ---------- */
-
-.guide {
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: minmax(0, 1fr) 440px;
   gap: 14px;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-}
-
-.guide-steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-
-.guide-step {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--panel-2);
-}
-
-.guide-step b {
-  display: block;
-  font-size: 13px;
-}
-
-.guide-step small {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 11.5px;
+  /* Fills the page area exactly, so the orbit never scrolls. */
+  height: 100%;
+  min-height: 560px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.guide-num {
-  color: var(--primary);
-  font-family: var(--mono);
-  font-weight: 800;
+/* ---------- The orbit ---------- */
+
+.play-stage {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
 }
 
-/* ---------- Continue playing ---------- */
-
-.home-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 14px;
-}
-
-.spotlight {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 26px;
-  padding: 24px;
-  background:
-    radial-gradient(circle at 100% 0%, var(--primary-soft), transparent 55%),
-    var(--panel);
-}
-
-.spotlight-foot {
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-  flex-wrap: wrap;
-}
-
-.home-stats {
-  display: grid;
-  grid-template-rows: repeat(3, 1fr);
-  gap: 10px;
-}
-
-@media (max-width: 1100px) {
-  .home-split { grid-template-columns: 1fr; }
-  .home-stats { grid-template-columns: repeat(3, 1fr); grid-template-rows: none; }
-  .guide-steps { grid-template-columns: 1fr; }
-}
-
-/* ---------- Sign-in dialog ---------- */
-
-.device-code {
-  padding: 16px;
-  border: 2px dashed rgba(255, 210, 63, 0.5);
-  border-radius: 14px;
-  background: var(--bg-2);
-  color: var(--yellow);
-  font-family: var(--mono);
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: 0.2em;
+.play-title {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 4%;
   text-align: center;
 }
 
-/* ---------- Orbit Client hero ---------- */
-
-/* Night sky with the Orbit eclipse on the right: a dark moon in a glowing
-   corona, circled by a tilted orbit with a satellite travelling around it. */
-.orbit-hero {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-height: 260px;
-  overflow: hidden;
-  padding: 34px 40px;
-  border: 1px solid rgba(110, 140, 255, 0.28);
-  border-radius: 20px;
-  background:
-    radial-gradient(520px 320px at 78% 50%, rgba(80, 110, 255, 0.28), transparent 70%),
-    radial-gradient(1px 1px at 12% 22%, #fff, transparent),
-    radial-gradient(1px 1px at 34% 78%, #dfe6ff, transparent),
-    radial-gradient(1.5px 1.5px at 58% 14%, #fff, transparent),
-    radial-gradient(1px 1px at 92% 82%, #fff, transparent),
-    radial-gradient(1px 1px at 66% 88%, #cfd8ff, transparent),
-    linear-gradient(120deg, #0d1022 0%, #090b16 60%, #070810 100%);
-  color: #e8eaf0;
-}
-
-.orbit-hero-body {
-  position: relative;
-  z-index: 1;
-  max-width: 560px;
-}
-
-.orbit-hero .eyebrow {
-  color: #9db4ff;
+.play-title small {
+  color: var(--primary);
+  font-family: var(--mono);
   font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  letter-spacing: 0.25em;
 }
 
-.orbit-hero h2 {
-  margin-top: 8px;
-  color: #ffffff;
-  font-size: 34px;
-  letter-spacing: -0.01em;
+.play-title h1 {
+  margin: 6px 0 4px;
+  font-size: 38px;
+  letter-spacing: 0.01em;
 }
 
-.orbit-hero h2 span {
-  background: linear-gradient(90deg, #9db4ff, #6e8cff 45%, #a06cf0);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.play-title p {
+  color: var(--muted);
 }
 
-.orbit-hero-desc {
-  max-width: 440px;
-  margin-top: 10px;
-  color: #b7bfd8;
-  line-height: 1.5;
-}
-
-/* The hero is always dark: its buttons keep the Orbit accent whatever the theme. */
-.orbit-hero .hero-launch-main,
-.orbit-hero .hero-launch-pick {
-  background: #6e8cff;
-  color: #0b0d14;
-}
-
-.orbit-hero .hero-launch {
-  box-shadow: 0 10px 30px rgba(110, 140, 255, 0.35);
-}
-
-.orbit-hero .hero-launch.is-running .hero-launch-main {
-  background: var(--red);
-  color: #ffffff;
-}
-
-.orbit-hero .orbit-join {
-  border-color: rgba(157, 180, 255, 0.35);
-  color: #dfe6ff;
-}
-
-.orbit-hero :focus-visible {
-  outline-color: #9db4ff;
-}
-
-.orbit-art {
+.play-orbit {
   position: absolute;
-  right: 64px;
-  top: 50%;
-  width: 190px;
-  height: 190px;
-  transform: translateY(-50%);
+  left: 4%;
+  right: 4%;
+  top: 38%;
+  height: 36%;
+  border: 1px solid rgba(157, 180, 255, 0.35);
+  border-radius: 50%;
+  box-shadow: inset 0 0 30px rgba(157, 180, 255, 0.08);
   pointer-events: none;
 }
 
-.orbit-corona,
-.orbit-moon {
+.play-orbit.far {
+  left: -6%;
+  right: -6%;
+  top: 31%;
+  height: 52%;
+  border-color: rgba(157, 180, 255, 0.12);
+}
+
+.world {
   position: absolute;
-  inset: 0;
-  margin: auto;
+  width: var(--s);
+  height: var(--s);
+  padding: 0;
+  border: 0;
   border-radius: 50%;
+  background: none;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.5));
+  transition: left 0.45s cubic-bezier(.2, .8, .2, 1), top 0.45s cubic-bezier(.2, .8, .2, 1), width 0.45s, height 0.45s, filter 0.2s;
 }
 
-.orbit-corona {
-  width: 150px;
-  height: 150px;
-  background: radial-gradient(circle, #ffffff 42%, #c6d6ff 48%, rgba(110, 140, 255, 0.45) 60%, transparent 72%);
-  filter: blur(1px);
-  animation: orbit-pulse 4s ease-in-out infinite;
+.world:hover:not(.is-front) {
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.5)) brightness(1.15);
 }
 
-.orbit-moon {
-  width: 104px;
-  height: 104px;
-  background: radial-gradient(circle at 38% 34%, #1a1d2b, #05060a 70%);
+.world.is-front {
+  z-index: 2;
+  animation: world-bob 7s ease-in-out infinite;
 }
 
-/* The ring is a tilted ellipse; the dot rides it by spinning a full-size box. */
-.orbit-ring {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 250px;
-  height: 250px;
-  left: -30px;
-  top: -30px;
-  border: 3px solid rgba(110, 140, 255, 0.75);
-  border-radius: 50%;
-  transform: rotate(-22deg) scaleY(0.3);
-}
-
-.orbit-dot {
-  position: absolute;
-  inset: -3px;
-  border-radius: 50%;
-  animation: orbit-spin 6s linear infinite;
-}
-
-.orbit-dot::after {
+/* The selection ring around the front world. */
+.world.is-front::after {
   content: '';
   position: absolute;
-  top: -8px;
-  left: 50%;
-  width: 14px;
-  height: 14px;
-  margin-left: -7px;
+  inset: -9%;
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 0 14px 4px rgba(157, 180, 255, 0.8);
-  /* Undo the ring's squash so the satellite stays round. */
-  transform: scaleY(3.33);
+  box-shadow: 0 0 30px rgba(190, 170, 255, 0.35);
+  pointer-events: none;
 }
 
-@keyframes orbit-spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes orbit-pulse {
-  0%, 100% { opacity: 0.9; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.04); }
+@keyframes world-bob {
+  50% { transform: translate(-50%, -53%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit-dot,
-  .orbit-corona { animation: none; }
+  .world.is-front { animation: none; }
+}
+
+.planet-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.planet-halo {
+  position: absolute;
+  inset: -14%;
+  border-radius: 50%;
+  background: radial-gradient(circle, transparent 55%, var(--glow) 62%, transparent 74%);
+  pointer-events: none;
+}
+
+.world-live {
+  position: absolute;
+  right: 6%;
+  bottom: 6%;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--shell);
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 10px var(--green);
+}
+
+.world-label {
+  position: absolute;
+  transform: translateX(-50%);
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.world-label b {
+  display: block;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.play-arrow {
+  position: absolute;
+  top: 52%;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--muted);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.play-arrow:hover { color: var(--heading); }
+.play-arrow { left: 1%; }
+.play-arrow.is-next { left: auto; right: 1%; }
+
+/* ---------- Bracketed launch ---------- */
+
+.launch-row {
+  position: absolute;
+  left: 50%;
+  bottom: 9%;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  transform: translateX(-50%);
+}
+
+.readout {
+  min-width: 130px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+
+.readout:last-child { text-align: left; }
+.readout:first-child { text-align: right; }
+
+.readout b { color: var(--green); font-weight: 500; }
+.readout b.is-busy { color: var(--amber); }
+.readout b.is-warn { color: var(--primary); }
+.readout b.is-live { color: var(--green); text-shadow: 0 0 8px var(--green); }
+
+.launch-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 42px;
+  border: 0;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #ffd38a, #ffb44f);
+  box-shadow: 0 0 28px rgba(255, 196, 107, 0.45);
+  color: #1a1206;
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  cursor: pointer;
+  transition: box-shadow 0.15s, filter 0.15s;
+}
+
+.launch-btn::before,
+.launch-btn::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--amber);
+  transition: transform 0.15s;
+}
+
+.launch-btn::before { left: -9px; top: -9px; border-right: 0; border-bottom: 0; }
+.launch-btn::after { right: -9px; bottom: -9px; border-left: 0; border-top: 0; }
+
+.launch-btn:hover:not(:disabled) { filter: brightness(1.06); box-shadow: 0 0 40px rgba(255, 196, 107, 0.6); }
+.launch-btn:hover:not(:disabled)::before { transform: translate(-3px, -3px); }
+.launch-btn:hover:not(:disabled)::after { transform: translate(3px, 3px); }
+.launch-btn:disabled { cursor: default; filter: saturate(0.6) brightness(0.85); }
+.launch-btn .spinner { border-color: rgba(26, 18, 6, 0.3); border-top-color: #1a1206; }
+
+.launch-btn.is-stop {
+  background: linear-gradient(180deg, #ff8a9a, #ff496e);
+  box-shadow: 0 0 28px rgba(255, 73, 110, 0.45);
+  color: #1d0610;
+}
+
+.launch-btn.is-stop::before,
+.launch-btn.is-stop::after { border-color: var(--red); }
+
+.join-link {
+  position: absolute;
+  left: 50%;
+  bottom: 3%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transform: translateX(-50%);
+}
+
+.join-link:hover:not(:disabled) { color: var(--heading); background: var(--panel); }
+
+/* ---------- Side panel ---------- */
+
+.play-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 14px;
+  border-radius: 16px;
+}
+
+.side-panel:first-child { flex: 1; }
+
+.side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.side-head h2 {
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.side-head span {
+  max-width: 60%;
+  color: var(--primary);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.tele-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.tele-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) 92px 44px 70px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tele-row:hover { background: var(--panel); }
+
+.tele-row.is-on {
+  background: rgba(157, 180, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(157, 180, 255, 0.45);
+}
+
+.tele-row.is-on .tele-last { color: var(--amber); }
+
+.tele-hdr {
+  padding-top: 0;
+  padding-bottom: 4px;
+  color: var(--faint);
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  cursor: default;
+}
+
+.tele-hdr:hover { background: none; }
+
+.tele-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.tele-name {
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tele-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 9px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tele-new:hover { color: var(--heading); border-color: var(--primary-line); }
+
+.tele-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.tele-card {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.tele-card small {
+  display: block;
+  color: var(--faint);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.tele-card b {
+  display: block;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tele-mem {
+  margin-top: 10px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.tele-seg {
+  display: flex;
+  gap: 3px;
+  margin-top: 5px;
+}
+
+.tele-seg i {
+  flex: 1;
+  height: 7px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tele-seg i.on { background: var(--primary); }
+
+.side-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 @media (max-width: 1100px) {
-  .orbit-art { right: 24px; opacity: 0.5; }
+  .play { grid-template-columns: minmax(0, 1fr) 360px; }
+  .tele-row { grid-template-columns: 12px minmax(0, 1fr) 80px 36px 58px; gap: 8px; }
 }

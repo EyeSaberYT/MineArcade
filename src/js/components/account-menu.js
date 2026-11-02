@@ -1,5 +1,5 @@
-// Bottom of the rail: the active player's head, opening account switching,
-// skin and sign-out (like the profile button in the Modrinth App).
+// Right of the top bar: the active player's head and name, opening account
+// switching, skin and sign-out.
 import { signIn, signOut, switchAccount } from '../actions.js';
 import { activeAccount, store } from '../store.js';
 import { html, icon, playerHead, setHtml, showMenu } from '../ui.js';
@@ -10,14 +10,14 @@ export function mountAccountMenu(root) {
     if (!account) {
       setHtml(
         root,
-        html`<button class="rail-btn rail-signin" data-signin data-tip="Sign in with Microsoft" aria-label="Sign in with Microsoft">${icon('log-in')}</button>`,
+        html`<button class="account-btn is-signin" data-signin aria-label="Sign in with Microsoft">${icon('log-in', 'icon-sm')} Sign in</button>`,
       );
       return;
     }
     setHtml(
       root,
-      html`<button class="rail-btn rail-account" data-menu data-tip="Playing as ${account.username}" aria-label="Account: ${account.username}">
-        ${playerHead(account, 32)}
+      html`<button class="account-btn" data-menu aria-label="Account: ${account.username}">
+        ${playerHead(account, 26)}<span>${account.username}</span>
       </button>`,
     );
   };
@@ -46,7 +46,7 @@ export function mountAccountMenu(root) {
         { label: 'Add account', icon: 'plus', onSelect: signIn },
         current && { label: `Sign out ${current.username}`, icon: 'log-out', danger: true, onSelect: () => signOut(current) },
       ].filter(Boolean),
-      { placement: 'right' },
+      { align: 'end' },
     );
   });
 
