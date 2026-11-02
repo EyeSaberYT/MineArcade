@@ -452,7 +452,7 @@ mod tests {
     fn prune_keeps_valid_and_untracked_records() {
         let mut instance = instance_with(vec![
             record("u76hn1pF", "modpack", &[]),
-            record("P7dR8mIR", "mod", &["mods/api.jar"]),
+            record("P7dR8mSH", "mod", &["mods/api.jar"]),
             // A local `.mrpack` import: no Modrinth id, by design.
             record("", "modpack", &[]),
         ]);

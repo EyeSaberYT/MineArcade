@@ -24,7 +24,7 @@ pub const GAME_VERSION: &str = "1.21.11";
 /// The id the jar is recorded under in `installed_projects`. Not a Modrinth id:
 /// update checks skip it, and launches update it instead.
 pub const PROJECT_ID: &str = "orbit-client";
-const FABRIC_API: &str = "P7dR8mIR";
+const FABRIC_API: &str = "P7dR8mSH";
 const LATEST_RELEASE: &str = "https://api.github.com/repos/EyeSaberYT/OrbitClient/releases/latest";
 /// The Orbit icon the launcher ships with, which is also the mod's icon.
 const ICON: &[u8] = include_bytes!("../../icons/128x128.png");
@@ -119,20 +119,27 @@ pub async fn orbit_client_install(app: AppHandle, state: State<'_, AppState>) ->
         }
     };
 
-    // Repairs: a missing loader version would launch vanilla, and Orbit Client needs Fabric API.
-    let instance = state.instances.read().await.get(&id)?.clone();
-    if instance.loader_version.is_none() {
-        instance_install_loader(app.clone(), state.clone(), id.clone(), None).await?;
-    }
-    if !instance.installed_projects.iter().any(|p| p.project_id == FABRIC_API) {
-        modrinth_install(app.clone(), state.clone(), id.clone(), FABRIC_API.into(), None).await?;
-    }
+    repair(&app, &state, &id).await?;
     update_jar(&app, &state, &id).await?;
     Ok(state.instances.read().await.get(&id)?.clone())
 }
 
-/// Before a launch: the newest jar if GitHub can be reached, else the one already there.
-pub async fn prepare_launch(app: &AppHandle, state: &AppState, id: &str) -> Result<()> {
+/// A missing loader version would launch vanilla, and Orbit Client needs Fabric API: put back
+/// whatever an interrupted install left out. Does nothing (and needs no network) when both are there.
+async fn repair(app: &AppHandle, state: &State<'_, AppState>, id: &str) -> Result<()> {
+    let instance = state.instances.read().await.get(id)?.clone();
+    if instance.loader_version.is_none() {
+        instance_install_loader(app.clone(), state.clone(), id.to_string(), None).await?;
+    }
+    if !instance.installed_projects.iter().any(|p| p.project_id == FABRIC_API) {
+        modrinth_install(app.clone(), state.clone(), id.to_string(), FABRIC_API.into(), None).await?;
+    }
+    Ok(())
+}
+
+/// Before a launch: repair the instance, then the newest jar if GitHub can be reached, else the one already there.
+pub async fn prepare_launch(app: &AppHandle, state: &State<'_, AppState>, id: &str) -> Result<()> {
+    repair(app, state, id).await?;
     if let Err(error) = update_jar(app, state, id).await {
         let instance = state.instances.read().await.get(id)?.clone();
         if installed_version(&instance).is_none() {
@@ -255,6 +262,20 @@ mod tests {
         let release: Release = get_json(&http, LATEST_RELEASE).await.expect("latest release");
         let jar = pick_asset(&release, GAME_VERSION).expect("a mod jar");
         assert!(jar.digest.as_deref().is_some_and(|d| d.starts_with("sha256:")), "{jar:?}");
+    }
+
+    /// Fabric API's Modrinth id is hard-coded; a wrong one makes every Orbit Client install fail (v0.4.0 shipped one).
+    #[tokio::test]
+    #[ignore = "needs the network"]
+    async fn the_fabric_api_id_is_real() {
+        #[derive(Deserialize)]
+        struct Project {
+            slug: String,
+        }
+        let http = reqwest::Client::builder().user_agent(crate::USER_AGENT).build().unwrap();
+        let url = format!("https://api.modrinth.com/v2/project/{FABRIC_API}");
+        let project: Project = get_json(&http, &url).await.expect("Fabric API on Modrinth");
+        assert_eq!(project.slug, "fabric-api");
     }
 
     /// The record's id must survive the store's cleanup of malformed project ids.
