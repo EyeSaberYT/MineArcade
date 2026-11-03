@@ -95,7 +95,9 @@ impl AppState {
     /// A sink for game console output and process lifecycle events.
     ///
     /// Output goes out as `game://output` and the final status as `game://exit`,
-    /// which is what the in-app console listens to.
+    /// which is what the in-app console listens to. On exit the session's length is
+    /// first added to the instance's play time (and saved), so the UI's refresh on
+    /// `game://exit` already shows it.
     pub fn game_sink(&self, app: &tauri::AppHandle) -> GameEventSink {
         use tauri::Emitter;
         let app = app.clone();
@@ -104,7 +106,22 @@ impl AppState {
                 let _ = app.emit("game://output", output);
             }
             GameEvent::Exit(exit) => {
-                let _ = app.emit("game://exit", exit);
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    use tauri::Manager;
+                    let state = app.state::<AppState>();
+                    {
+                        let mut store = state.instances.write().await;
+                        if let Ok(instance) = store.get_mut(&exit.instance_id) {
+                            instance.play_time_secs = instance.play_time_secs.saturating_add(exit.play_secs);
+                            instance.last_played = Some(chrono::Utc::now().to_rfc3339());
+                            if let Err(error) = store.persist(&state.paths, &exit.instance_id) {
+                                log::warn!("couldn't save play time for {}: {error}", exit.instance_id);
+                            }
+                        }
+                    }
+                    let _ = app.emit("game://exit", exit);
+                });
             }
         })
     }

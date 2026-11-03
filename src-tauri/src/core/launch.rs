@@ -68,6 +68,8 @@ pub struct GameExit {
     pub instance_id: String,
     /// Exit status, or `None` when the process was killed by a signal.
     pub code: Option<i32>,
+    /// How long the game ran, in whole seconds: added to the instance's play time.
+    pub play_secs: u64,
 }
 
 /// Something a running game told us: a line of output, or that it stopped.
@@ -231,6 +233,7 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
         .map_err(|e| LauncherError::Launch(format!("Couldn't start Java: {e}")))?;
 
     let pid = child.id().unwrap_or(0);
+    let started = std::time::Instant::now();
 
     // Keep the whole transcript on disk for the crash viewer, while relaying
     // every line to the UI as it arrives. Both streams share one handle so
@@ -264,7 +267,6 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
 
     // Reap the child in the background so we don't leave a zombie.
     let watched = instance.id.clone();
-    let paths_clone = paths.clone();
     tokio::spawn(async move {
         let status = match stop {
             Some(mut stop) => tokio::select! {
@@ -281,18 +283,14 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
             Ok(status) => log::info!("instance {watched} exited with {status}"),
             Err(error) => log::warn!("failed to wait for instance {watched}: {error}"),
         }
+        // The play time goes to the launcher's in-memory instance store (see AppState::game_sink),
+        // which is what the UI reads and what gets saved; editing a fresh copy from disk here
+        // would be invisible to it and overwritten by its next save.
         events(GameEvent::Exit(GameExit {
             instance_id: watched.clone(),
             code: status.ok().and_then(|status| status.code()),
+            play_secs: started.elapsed().as_secs(),
         }));
-
-        // Bump play time if we can.
-        if let Ok(mut store) = instance::InstanceStore::load(&paths_clone) {
-            if let Ok(instance) = store.get_mut(&watched) {
-                instance.last_played = Some(chrono::Utc::now().to_rfc3339());
-            }
-            let _ = store.save(&paths_clone);
-        }
     });
 
     sink(Progress {
