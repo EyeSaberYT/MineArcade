@@ -47,7 +47,7 @@ fn overview(game: &Path, instance_dir: &Path) -> Result<WorldsOverview> {
 /// it runs can capture a half-written chunk and replacing one would simply be
 /// overwritten when the game saves next.
 async fn ensure_stopped(state: &State<'_, AppState>, id: &str) -> Result<()> {
-    if state.running.read().await.iter().any(|entry| entry == id) {
+    if state.is_running(id).await {
         return Err(LauncherError::msg(
             "Minecraft is playing this instance, so its worlds are being written. \
              Close the game first.",

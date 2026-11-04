@@ -25,9 +25,17 @@ export async function refreshAccounts() {
   }
 }
 
+/** How many games of this instance are running (an instance can run several times). */
+export const runningCount = (id) => store.state.runningCounts.get(id) ?? 0;
+
 export async function refreshRunning() {
   try {
-    store.set('running', new Set(await api.launch.running()));
+    // One entry per running game, so an instance running twice is listed twice.
+    const games = await api.launch.running();
+    const counts = new Map();
+    for (const id of games) counts.set(id, (counts.get(id) ?? 0) + 1);
+    store.set('runningCounts', counts);
+    store.set('running', new Set(games));
   } catch {
     // The backend may still be starting up.
   }
@@ -132,7 +140,9 @@ export const featuredServer = () => store.state.settings?.featuredServer?.trim()
  * quickPlay: { type: 'multiplayer', address } | { type: 'singleplayer', world } | undefined
  */
 export async function launchInstance(id, quickPlay) {
-  if (store.state.launching.has(id) || store.state.running.has(id)) return;
+  // A running instance can be launched again (multi-launching); one launch at a time each.
+  if (store.state.launching.has(id)) return;
+  const another = store.state.running.has(id);
   if (!activeAccount()) {
     toast('Sign in with your Microsoft account to play.', { kind: 'warn' });
     signIn();
@@ -140,13 +150,16 @@ export async function launchInstance(id, quickPlay) {
   }
 
   store.update('launching', (set) => void set.add(id));
-  store.state.console[id] = [];
-  store.set('console', store.state.console);
+  // A second copy shares the console with the first: keep what's already there.
+  if (!another) {
+    store.state.console[id] = [];
+    store.set('console', store.state.console);
+  }
 
   try {
     const process = await api.launch.instance(id, quickPlay);
     const joining = quickPlay?.type === 'multiplayer' ? quickPlay.address : null;
-    toast(joining ? `Joining ${joining}…` : 'Minecraft is starting…', {
+    toast(joining ? `Joining ${joining}…` : another ? 'Another copy of Minecraft is starting…' : 'Minecraft is starting…', {
       kind: 'success',
       description: `Process ${process.pid}`,
     });
@@ -229,19 +242,32 @@ export async function quickJoin() {
   });
 }
 
-/** Ask, then force-close a running game. */
+/**
+ * When the player last asked to stop each instance: exits in the next few seconds are that
+ * stop, not crashes (several copies can exit at once, so it isn't cleared by the first).
+ */
+const stopRequests = new Map();
+export const wasStopped = (id) => Date.now() - (stopRequests.get(id) ?? 0) < 15000;
+
+/** Ask, then force-close every running game of an instance. */
 export async function stopInstance(id, name = 'Minecraft') {
+  const count = runningCount(id);
   const ok = await confirmDialog({
     title: `Stop ${name}?`,
-    message: 'This force-closes the game. Unsaved progress in singleplayer worlds may be lost.',
-    confirmLabel: 'Stop game',
+    message: count > 1
+      ? `This force-closes all ${count} running copies. Unsaved progress in singleplayer worlds may be lost.`
+      : 'This force-closes the game. Unsaved progress in singleplayer worlds may be lost.',
+    confirmLabel: count > 1 ? `Stop ${count} games` : 'Stop game',
     danger: true,
   });
   if (!ok) return;
   try {
+    stopRequests.set(id, Date.now());
     await api.launch.stop(id);
+    toast(count > 1 ? `Stopping ${count} games…` : `Stopping ${name}…`);
   } catch (error) {
     // The launcher lost track of it (e.g. after a restart): just clear the flag.
+    stopRequests.delete(id);
     await api.launch.markStopped(id).catch(() => {});
     store.update('running', (set) => void set.delete(id));
     toastError(error);

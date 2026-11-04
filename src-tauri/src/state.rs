@@ -12,6 +12,14 @@ use crate::core::launch::{GameEvent, GameEventSink};
 use crate::core::paths::AppPaths;
 use crate::error::Result;
 
+/// One running game.
+pub struct GameSession {
+    pub instance_id: String,
+    pub pid: u32,
+    /// Sending `()` makes the watcher kill the game; taken once a stop was asked for.
+    pub stop: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
 pub struct AppState {
     /// Shared HTTP client with sane timeouts and a descriptive user agent.
     pub http: reqwest::Client,
@@ -23,10 +31,11 @@ pub struct AppState {
     /// Held while a Microsoft token is being refreshed, so two commands needing
     /// a fresh token at once don't both redeem the same refresh token.
     pub token_refresh: tokio::sync::Mutex<()>,
-    /// Instances that currently have a game process running.
-    pub running: RwLock<Vec<String>>,
-    /// Per running instance, the channel that kills its game process.
-    pub stoppers: tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<()>>>,
+    /// Every running game process, by session id. One instance can run several
+    /// times at once (multi-launching), so a session, not an instance, is a game.
+    pub sessions: tokio::sync::Mutex<std::collections::HashMap<u64, GameSession>>,
+    /// The id the next launch gets.
+    pub next_session: std::sync::atomic::AtomicU64,
     /// Discord Rich Presence (a no-op without an application ID).
     pub presence: crate::core::discord::Presence,
 }
@@ -58,10 +67,27 @@ impl AppState {
             instances: RwLock::new(instances),
             accounts: RwLock::new(accounts),
             token_refresh: tokio::sync::Mutex::new(()),
-            running: RwLock::new(vec![]),
-            stoppers: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            sessions: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            next_session: std::sync::atomic::AtomicU64::new(1),
             presence,
         })
+    }
+
+    /// The instance id of every running game, once per game (an instance running twice is listed twice).
+    pub async fn running_games(&self) -> Vec<String> {
+        let sessions = self.sessions.lock().await;
+        let mut ids: Vec<(u64, String)> = sessions
+            .iter()
+            .filter(|(_, game)| game.pid != 0)
+            .map(|(session, game)| (*session, game.instance_id.clone()))
+            .collect();
+        ids.sort();
+        ids.into_iter().map(|(_, id)| id).collect()
+    }
+
+    /// Whether any game of this instance is running (or starting).
+    pub async fn is_running(&self, instance_id: &str) -> bool {
+        self.sessions.lock().await.values().any(|game| game.instance_id == instance_id)
     }
 
     /// Current Modrinth base url, honouring user settings.
@@ -95,9 +121,9 @@ impl AppState {
     /// A sink for game console output and process lifecycle events.
     ///
     /// Output goes out as `game://output` and the final status as `game://exit`,
-    /// which is what the in-app console listens to. On exit the session's length is
-    /// first added to the instance's play time (and saved), so the UI's refresh on
-    /// `game://exit` already shows it.
+    /// which is what the in-app console listens to. On exit the game's session is
+    /// dropped and its length added to the instance's play time (and saved) first, so
+    /// the UI's refresh on `game://exit` already shows both.
     pub fn game_sink(&self, app: &tauri::AppHandle) -> GameEventSink {
         use tauri::Emitter;
         let app = app.clone();
@@ -110,6 +136,13 @@ impl AppState {
                 tauri::async_runtime::spawn(async move {
                     use tauri::Manager;
                     let state = app.state::<AppState>();
+                    {
+                        let mut sessions = state.sessions.lock().await;
+                        sessions.remove(&exit.session);
+                        if !sessions.values().any(|game| game.instance_id == exit.instance_id) {
+                            state.presence.game_stopped(&exit.instance_id);
+                        }
+                    }
                     {
                         let mut store = state.instances.write().await;
                         if let Ok(instance) = store.get_mut(&exit.instance_id) {

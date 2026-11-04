@@ -14,6 +14,8 @@ const state = {
   instancesLoaded: false,
   /** Ids of instances with a game process running. */
   running: new Set(),
+  /** Per instance id, how many of its games are running (multi-launching). */
+  runningCounts: new Map(),
   /** Ids of instances being prepared (downloads, auth, Java) but not yet started. */
   launching: new Set(),
   /** Latest `download://progress` snapshot, or null. */

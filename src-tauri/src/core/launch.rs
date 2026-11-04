@@ -32,6 +32,8 @@ pub struct LaunchRequest<'a> {
     pub dry_run: bool,
     /// Firing this (or dropping its sender) is ignored; sending `()` kills the game.
     pub stop: Option<tokio::sync::oneshot::Receiver<()>>,
+    /// Which game this is, echoed back in its [`GameExit`] (an instance can run several times).
+    pub session: u64,
 }
 
 /// A successfully started game process.
@@ -66,6 +68,8 @@ pub struct GameOutput {
 #[serde(rename_all = "camelCase")]
 pub struct GameExit {
     pub instance_id: String,
+    /// The [`LaunchRequest::session`] of the game that exited.
+    pub session: u64,
     /// Exit status, or `None` when the process was killed by a signal.
     pub code: Option<i32>,
     /// How long the game ran, in whole seconds: added to the instance's play time.
@@ -98,6 +102,7 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
         events,
         dry_run,
         stop,
+        session,
     } = request;
 
     if account.is_expired() {
@@ -272,7 +277,8 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
             Some(mut stop) => tokio::select! {
                 status = child.wait() => status,
                 Ok(()) = &mut stop => {
-                    log::info!("stopping instance {watched} on request");
+                    log::info!("stopping instance {watched} (pid {pid}) on request");
+                    kill_tree(pid).await;
                     let _ = child.kill().await;
                     child.wait().await
                 }
@@ -288,6 +294,7 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
         // would be invisible to it and overwritten by its next save.
         events(GameEvent::Exit(GameExit {
             instance_id: watched.clone(),
+            session,
             code: status.ok().and_then(|status| status.code()),
             play_secs: started.elapsed().as_secs(),
         }));
@@ -331,6 +338,33 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
         command: java_path.to_string_lossy().to_string(),
         arguments: safe_args,
     })
+}
+
+/// Force-close a game and everything it started (on Windows, `taskkill /T /F`).
+/// Killing only the Java process could leave processes it spawned behind.
+pub async fn kill_tree(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    #[cfg(windows)]
+    let mut command = {
+        let mut command = tokio::process::Command::new("taskkill");
+        command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = tokio::process::Command::new("kill");
+        command.args(["-9", &pid.to_string()]);
+        command
+    };
+    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    super::no_console(&mut command);
+    match command.status().await {
+        Ok(status) if status.success() => {}
+        Ok(status) => log::warn!("killing game process {pid} returned {status}"),
+        Err(error) => log::warn!("couldn't kill game process {pid}: {error}"),
+    }
 }
 
 /// Relay one of the game's output streams to the log file and to the UI.
@@ -548,5 +582,35 @@ pub fn summarize(paths: &AppPaths, instance: &Instance) -> InstanceSummary {
         mod_count,
         installed: minecraft::resolve_cached(paths, instance).is_some(),
         tags: instance.tags.clone(),
+    }
+}
+
+#[cfg(test)]
+mod kill_tests {
+    use super::kill_tree;
+
+    /// Stop must close a running process (and what it started), not just ask it to.
+    #[tokio::test]
+    async fn kill_tree_closes_a_running_process() {
+        #[cfg(windows)]
+        let mut command = {
+            // cmd starts ping as its own child: the tree a game with helper processes has.
+            let mut command = tokio::process::Command::new("cmd");
+            command.args(["/c", "ping -n 60 127.0.0.1 > NUL"]);
+            command
+        };
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut command = tokio::process::Command::new("sh");
+            command.args(["-c", "sleep 60"]);
+            command
+        };
+        let mut child = command.spawn().expect("start a long-running process");
+        kill_tree(child.id().expect("pid")).await;
+        let status = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())
+            .await
+            .expect("the process is still running after kill_tree")
+            .expect("wait for the process");
+        assert!(!status.success());
     }
 }

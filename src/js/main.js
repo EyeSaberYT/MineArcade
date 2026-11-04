@@ -6,6 +6,7 @@ import {
   refreshInstances,
   refreshRunning,
   stopInstance,
+  wasStopped,
 } from './actions.js';
 import { mountAccountMenu } from './components/account-menu.js';
 import { initDrop } from './drop.js';
@@ -64,6 +65,7 @@ function mountTopBar() {
   const render = () => {
     const running = [...store.state.running];
     const first = running.length ? store.state.instances.find((i) => i.id === running[0]) : null;
+    const games = [...store.state.runningCounts.values()].reduce((sum, n) => sum + n, 0);
     setHtml(
       statusEl,
       html`
@@ -73,7 +75,7 @@ function mountTopBar() {
           ? html`<span class="chip is-live">
               <span class="chip-dot"></span>
               <a href="#/instance/${encodeURIComponent(running[0])}" data-tip="View instance">${first?.name ?? 'Minecraft'}</a>
-              ${running.length > 1 && html`<span class="faint">+${running.length - 1}</span>`}
+              ${games > 1 && html`<span class="faint">+${games - 1}</span>`}
               <button class="chip-btn danger" data-stop-running data-tip="Stop game" aria-label="Stop game">${icon('stop-circle', 'icon-sm')}</button>
               <button class="chip-btn" data-logs data-tip="View logs" aria-label="View logs">${icon('terminal', 'icon-sm')}</button>
             </span>`
@@ -102,7 +104,7 @@ function mountTopBar() {
   window.addEventListener('online', render);
   window.addEventListener('offline', render);
   onNavigate(renderBack);
-  store.on(['running', 'instances'], render);
+  store.on(['running', 'runningCounts', 'instances'], render);
   // A launch of Orbit Client may have updated its jar.
   store.on('instances', refreshOrbit);
   renderBack(currentRoute().path);
@@ -232,10 +234,12 @@ async function listenToBackend() {
   await listen('game://output', ({ instanceId, stream, line }) => appendConsole(instanceId, stream, line));
 
   await listen('game://exit', async ({ instanceId, code }) => {
-    await api.launch.markStopped(instanceId).catch(() => {});
-    store.update('running', (set) => void set.delete(instanceId));
+    // The backend has dropped this game already; other copies of the instance may still run.
+    await refreshRunning();
     const name = store.state.instances.find((i) => i.id === instanceId)?.name ?? 'Minecraft';
-    if (code === 0 || code === null) {
+    if (wasStopped(instanceId)) {
+      toast(`${name} stopped`);
+    } else if (code === 0 || code === null) {
       toast(`${name} closed`);
     } else {
       toast(`${name} exited with code ${code}`, {

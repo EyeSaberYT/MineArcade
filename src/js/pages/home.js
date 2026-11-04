@@ -12,6 +12,7 @@ import {
   launchInstance,
   orbitInstance,
   playOrbitClient,
+  runningCount,
   spotlightInstance,
   stopInstance,
 } from '../actions.js';
@@ -103,7 +104,7 @@ export function render(root) {
         <div class="world-layer" data-worlds></div>
         <button class="play-arrow glass" data-spin="-1" aria-label="Previous instance">${icon('chevron-left')}</button>
         <button class="play-arrow glass is-next" data-spin="1" aria-label="Next instance">${icon('chevron-right')}</button>
-        <div data-launch></div>
+        <div data-launch-area></div>
       </section>
       <aside class="play-side" data-side></aside>
     </div>`,
@@ -111,7 +112,9 @@ export function render(root) {
   const stage = root.querySelector('[data-stage]');
   const layer = root.querySelector('[data-worlds]');
   const titleEl = root.querySelector('[data-title]');
-  const launchEl = root.querySelector('[data-launch]');
+  // Not [data-launch]: that's the LAUNCH button's marker, and a container carrying it made every
+  // click inside it (STOP included) count as a launch.
+  const launchEl = root.querySelector('[data-launch-area]');
   const sideEl = root.querySelector('[data-side]');
 
   // ---------- The worlds ----------
@@ -209,7 +212,8 @@ export function render(root) {
     const running = store.state.running.has(selected.id);
     const launching = store.state.launching.has(selected.id) || (selected.placeholder && store.state.orbitInstalling);
     const server = featuredServer();
-    const status = running ? 'RUNNING' : launching ? 'STARTING' : selected.placeholder ? 'NOT INSTALLED' : 'READY';
+    const copies = runningCount(selected.id);
+    const status = running ? (copies > 1 ? `RUNNING ×${copies}` : 'RUNNING') : launching ? 'STARTING' : selected.placeholder ? 'NOT INSTALLED' : 'READY';
     const titleChanged = titleEl.dataset.id !== selected.id;
 
     titleEl.dataset.id = selected.id;
@@ -238,8 +242,10 @@ export function render(root) {
           <div class="readout">MEM ${selected.placeholder ? '4.0' : memoryGb(selected).toFixed(1)} GB<br>
             LAST ${selected.lastPlayed ? relativeTime(selected.lastPlayed).toUpperCase() : 'NEVER'}</div>
         </div>
-        ${server && !running &&
-        html`<button class="join-link" data-join ${launching ? 'disabled' : ''}>${icon('server', 'icon-sm')} Launch into ${server}</button>`}`,
+        ${running
+          ? html`<button class="join-link" data-launch-another ${launching ? 'disabled' : ''}>${launching ? spinner() : icon('plus', 'icon-sm')} Launch another copy</button>`
+          : server &&
+            html`<button class="join-link" data-join ${launching ? 'disabled' : ''}>${icon('server', 'icon-sm')} Launch into ${server}</button>`}`,
     );
 
     const listScroll = sideEl.querySelector('.tele-list')?.scrollTop ?? 0;
@@ -353,10 +359,14 @@ export function render(root) {
     const spinBtn = target.closest('[data-spin]');
     if (spinBtn) return spin(Number(spinBtn.dataset.spin));
     const world = target.closest('[data-world]');
-    if (world) return world.classList.contains('is-front') ? launchSelected() : select(world.dataset.world);
+    if (world) {
+      if (!world.classList.contains('is-front')) return select(world.dataset.world);
+      // Only the buttons start another copy of a running game, never a click on its planet.
+      return store.state.running.has(world.dataset.world) ? undefined : launchSelected();
+    }
     const row = target.closest('[data-select]');
     if (row) return select(row.dataset.select);
-    if (target.closest('[data-launch]')) return launchSelected();
+    if (target.closest('[data-launch], [data-launch-another]')) return launchSelected();
     if (target.closest('[data-join]')) return launchSelected({ type: 'multiplayer', address: featuredServer() });
     const stop = target.closest('[data-stop]');
     if (stop) {
@@ -419,7 +429,7 @@ export function render(root) {
   resize.observe(stage);
 
   draw();
-  const off = store.on(['instances', 'running', 'launching', 'settings', 'orbitInstalling'], () => draw());
+  const off = store.on(['instances', 'running', 'runningCounts', 'launching', 'settings', 'orbitInstalling'], () => draw());
   return () => {
     off?.();
     resize.disconnect();

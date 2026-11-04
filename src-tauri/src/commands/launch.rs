@@ -6,9 +6,12 @@ use crate::commands::auth::active_account;
 use crate::core::instance::QuickPlay;
 use crate::core::launch::{self, LaunchRequest, LaunchedProcess};
 use crate::error::{LauncherError, Result};
-use crate::state::AppState;
+use crate::state::{AppState, GameSession};
 
 /// Launch an instance. Emits `download://progress` events throughout.
+///
+/// An instance that's already running can be launched again (multi-launching):
+/// each launch is its own game, with its own window and process.
 ///
 /// `quick_play` overrides where the game opens for this launch only. The server
 /// list uses it to join a chosen server without rewriting the instance's saved
@@ -20,15 +23,12 @@ pub async fn launch_instance(
     id: String,
     quick_play: Option<QuickPlay>,
 ) -> Result<LaunchedProcess> {
-    {
-        let running = state.running.read().await;
-        if running.contains(&id) {
-            return Err(LauncherError::msg("That instance is already running."));
-        }
-    }
-
     // Orbit Client plays its newest release, and every other Fabric instance gets it too.
-    if crate::commands::orbit::is_orbit(state.instances.read().await.get(&id)?) {
+    // Not while a game of this instance runs: it holds the mod jars open, so they can't be
+    // replaced, and the running copy already has them.
+    if state.is_running(&id).await {
+        log::info!("instance {id} is already running: launching another copy as it is");
+    } else if crate::commands::orbit::is_orbit(state.instances.read().await.get(&id)?) {
         crate::commands::orbit::prepare_launch(&app, &state, &id).await?;
     } else {
         crate::commands::orbit::prepare_other_launch(&app, &state, &id).await;
@@ -41,8 +41,15 @@ pub async fn launch_instance(
     let account = active_account(&state).await?;
     let settings = state.settings.read().await.clone();
 
-    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-    let result = launch::launch(LaunchRequest {
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let session = state.next_session.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // Registered before the game starts, so a game that exits at once (its exit drops the
+    // session) can't leave a session behind. It counts as running once it has a pid.
+    state.sessions.lock().await.insert(
+        session,
+        GameSession { instance_id: id.clone(), pid: 0, stop: Some(stop_tx) },
+    );
+    let launched = launch::launch(LaunchRequest {
         http: &state.http,
         paths: &state.paths,
         instance: &instance,
@@ -52,12 +59,21 @@ pub async fn launch_instance(
         events: state.game_sink(&app),
         dry_run: false,
         stop: Some(stop_rx),
+        session,
     })
-    .await?;
-    state.stoppers.lock().await.insert(id.clone(), stop_tx);
+    .await;
+    let result = match launched {
+        Ok(result) => result,
+        Err(error) => {
+            state.sessions.lock().await.remove(&session);
+            return Err(error);
+        }
+    };
 
-    // Track it as running until the process exits.
-    state.running.write().await.push(id.clone());
+    // Running until the process exits (AppState::game_sink drops the session then).
+    if let Some(game) = state.sessions.lock().await.get_mut(&session) {
+        game.pid = result.pid;
+    }
     state.presence.game_started(crate::core::discord::Game::from_instance(&instance));
     {
         let mut store = state.instances.write().await;
@@ -87,6 +103,7 @@ pub async fn launch_preview(state: State<'_, AppState>, id: String) -> Result<St
         events: launch::silent_events(),
         dry_run: true,
         stop: None,
+        session: 0,
     })
     .await?;
 
@@ -132,26 +149,35 @@ pub async fn launch_logs(
 /// Mark an instance as no longer running (used when the launcher loses track).
 #[tauri::command]
 pub async fn launch_mark_stopped(state: State<'_, AppState>, id: String) -> Result<()> {
-    state.running.write().await.retain(|entry| entry != &id);
-    state.stoppers.lock().await.remove(&id);
+    state.sessions.lock().await.retain(|_, game| game.instance_id != id);
     state.presence.game_stopped(&id);
     Ok(())
 }
 
-/// Force-close a running game. `game://exit` follows once the process is gone.
+/// Force-close every running game of an instance. `game://exit` follows for each
+/// once its process is gone.
 #[tauri::command]
 pub async fn launch_stop(state: State<'_, AppState>, id: String) -> Result<()> {
-    match state.stoppers.lock().await.remove(&id) {
-        Some(stop) => {
-            let _ = stop.send(());
-            Ok(())
+    let mut sessions = state.sessions.lock().await;
+    let mut stopped = 0;
+    for (session, game) in sessions.iter_mut().filter(|(_, game)| game.instance_id == id && game.pid != 0) {
+        stopped += 1;
+        log::info!("stop requested for instance {id} (session {session}, pid {})", game.pid);
+        // The watcher kills the game when told to; if it can't be told (already asked, or
+        // it's gone), kill the process directly so Stop always does something.
+        let told = game.stop.take().is_some_and(|stop| stop.send(()).is_ok());
+        if !told {
+            launch::kill_tree(game.pid).await;
         }
-        None => Err(LauncherError::msg("That instance isn't running.")),
     }
+    if stopped == 0 {
+        return Err(LauncherError::msg("That instance isn't running."));
+    }
+    Ok(())
 }
 
-/// Which instances currently have a game process.
+/// The instance id of every running game: an instance running twice is listed twice.
 #[tauri::command]
 pub async fn launch_running(state: State<'_, AppState>) -> Result<Vec<String>> {
-    Ok(state.running.read().await.clone())
+    Ok(state.running_games().await)
 }

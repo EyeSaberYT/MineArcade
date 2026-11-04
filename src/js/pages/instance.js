@@ -3,7 +3,7 @@
 //
 // Route: #/instance/:id/:tab?  (tab defaults to `content`)
 import * as api from '../api.js';
-import { featuredServer, joinFeaturedServer, launchInstance, refreshInstances, stopInstance } from '../actions.js';
+import { featuredServer, joinFeaturedServer, launchInstance, refreshInstances, runningCount, stopInstance } from '../actions.js';
 import { openScanDialog } from '../dialogs/scan.js';
 import { navigate } from '../router.js';
 import { store } from '../store.js';
@@ -72,7 +72,11 @@ export function render(root, params) {
 
   function playControls() {
     if (isRunning(id)) {
-      return html`<button class="btn btn-danger" data-act="stop" title="Force-close the game">${icon('square')} Stop</button>`;
+      const copies = runningCount(id);
+      return html`<button class="btn btn-danger" data-act="stop" title="Force-close the game">${icon('square')} ${copies > 1 ? `Stop all ${copies}` : 'Stop'}</button>
+        <button class="btn btn-outline" data-act="play" ${isLaunching(id) ? 'disabled' : ''} title="Start another copy of this instance">
+          ${isLaunching(id) ? spinner() : icon('plus')} Launch another
+        </button>`;
     }
     if (isLaunching(id)) {
       return html`<button class="btn btn-play" disabled>${spinner()} Starting…</button>`;
@@ -339,7 +343,7 @@ export function render(root, params) {
     }
   }
 
-  offs.push(store.on(['running', 'launching', 'settings', 'instances'], drawHead));
+  offs.push(store.on(['running', 'runningCounts', 'launching', 'settings', 'instances'], drawHead));
   load();
 
   return () => {
