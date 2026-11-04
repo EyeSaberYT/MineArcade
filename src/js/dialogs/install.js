@@ -132,6 +132,9 @@ export function openInstallDialog(input, options = {}) {
   let versionId = options.versionId ?? '';
   let installedMap = new Map();
   let depRequest = 0;
+  // Dependency lookups by `instanceId|versionId`, so store-driven redraws don't refetch.
+  const depCache = new Map();
+  let installError = '';
   let busy = false;
   let off = () => {};
 
@@ -253,7 +256,7 @@ export function openInstallDialog(input, options = {}) {
           ${selected && installedMap.get(selected.id)?.has(project.id) && html`<div class="dc-notice">${icon('info', 'icon-sm')}<span>Already installed in ${selected.name}. Installing replaces it with the chosen version.</span></div>`}
 
           ${selected && versionId && html`<div class="field"><span>Also installs</span><div data-deps class="dc-deps">${html`<div class="small muted row">${spinner('icon-sm')} Resolving dependencies…</div>`}</div></div>`}
-          <p class="form-error" data-error></p>
+          <p class="form-error" data-error>${installError}</p>
         </div>`,
     );
     installBtn.disabled = busy || !selected || !versionId || selectedCompat?.level === 'no';
@@ -275,8 +278,15 @@ export function openInstallDialog(input, options = {}) {
   async function loadDependencies(instance) {
     const request = ++depRequest;
     const slot = () => content.querySelector('[data-deps]');
+    const key = `${instance.id}|${versionId}`;
+    if (!depCache.has(key)) {
+      const pending = api.modrinth.dependencies(instance.id, versionId);
+      // A failed lookup is retried on the next render, not cached.
+      pending.catch(() => depCache.delete(key));
+      depCache.set(key, pending);
+    }
     try {
-      const files = await api.modrinth.dependencies(instance.id, versionId);
+      const files = await depCache.get(key);
       if (request !== depRequest || modal.closed || !slot()) return;
       const installed = installedMap.get(instance.id) ?? new Set();
       const deps = files.filter((f) => f.projectId !== project.id && (f.dependency ?? true));
@@ -332,6 +342,7 @@ export function openInstallDialog(input, options = {}) {
   installBtn.addEventListener('click', async () => {
     const instance = instances().find((i) => i.id === instanceId);
     if (!instance || !versionId) return;
+    installError = '';
     const errorEl = content.querySelector('[data-error]');
     if (errorEl) errorEl.textContent = '';
     busy = true;
@@ -356,8 +367,9 @@ export function openInstallDialog(input, options = {}) {
       modal.setDismissable(true);
       installBtn.innerHTML = `${icon('download')} Install`;
       installBtn.disabled = false;
+      installError = errorText(error);
       const target = content.querySelector('[data-error]');
-      if (target) target.textContent = errorText(error);
+      if (target) target.textContent = installError;
       else toast(errorText(error), { kind: 'error' });
     }
   });

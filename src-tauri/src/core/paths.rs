@@ -40,6 +40,11 @@ impl AppPaths {
         self.root.join("accounts.json")
     }
 
+    /// `<root>/running.json` — games started but not yet seen exiting (see `launch::RunningGame`).
+    pub fn running_file(&self) -> PathBuf {
+        self.root.join("running.json")
+    }
+
     /// `<root>/instances.json`
     pub fn instances_index(&self) -> PathBuf {
         self.root.join("instances.json")
@@ -234,12 +239,39 @@ pub fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T
 
 /// Write JSON to a file atomically (write to a temp file then rename).
 pub fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
+    write_json_file(path, value, false)
+}
+
+/// [`write_json`] for secrets (account tokens): on unix only the owner may read the file.
+pub fn write_private_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
+    write_json_file(path, value, true)
+}
+
+fn write_json_file<T: serde::Serialize>(path: &Path, value: &T, private: bool) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let pretty = serde_json::to_string_pretty(value)?;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, pretty)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    if private {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(0o600);
+        // The mode only applies to a new file: also narrow a temp file left by a crash.
+        if tmp.exists() {
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = private;
+    {
+        use std::io::Write;
+        let mut file = options.open(&tmp)?;
+        file.write_all(pretty.as_bytes())?;
+    }
+    // The rename keeps the temp file's permissions, so the target ends up private too.
     std::fs::rename(&tmp, path)?;
     Ok(())
 }

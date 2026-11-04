@@ -50,6 +50,8 @@ function mount(root, initialPanel, close) {
   let saving = false;
   // Like Aether, the draft starts from (and follows) the saved settings.
   let draft = store.state.settings ? { ...store.state.settings } : null;
+  // Keys edited since the last full save; they survive a refresh of the draft.
+  const edited = new Set();
 
   const draw = () => {
     if (disposed) return;
@@ -316,6 +318,7 @@ function mount(root, initialPanel, close) {
     draw();
     try {
       await saveSettings(patch ?? draft);
+      if (!patch) edited.clear();
       toast('Settings saved', { kind: 'success' });
     } catch (error) {
       toastError(error);
@@ -357,6 +360,7 @@ function mount(root, initialPanel, close) {
     if (input.matches('[data-custom-accent]')) return applyAccent('custom', input.value);
     if (!input.dataset.key) return;
     const { key, type } = input.dataset;
+    edited.add(key);
     if (type === 'bool') draft[key] = input.checked;
     else if (type === 'int') draft[key] = Number(input.value) || (key === 'concurrentDownloads' ? 1 : 0);
     else if (type === 'path') draft[key] = input.value || null;
@@ -406,7 +410,9 @@ function mount(root, initialPanel, close) {
   });
 
   const offSettings = store.on(['settings', 'info'], () => {
-    draft = store.state.settings ? { ...store.state.settings } : null;
+    const saved = store.state.settings;
+    const kept = draft ? Object.fromEntries([...edited].map((key) => [key, draft[key]])) : {};
+    draft = saved ? { ...saved, ...kept } : null;
     draw();
   });
   const offUpdater = store.on('updater', () => panel === 'updates' && draw());

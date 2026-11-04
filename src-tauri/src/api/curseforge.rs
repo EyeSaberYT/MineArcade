@@ -63,6 +63,9 @@ struct CfMod {
     name: String,
     slug: String,
     summary: Option<String>,
+    /// The project's class (mods, resource packs, shaders, …).
+    #[serde(default)]
+    class_id: Option<i32>,
     #[serde(default)]
     categories: Vec<CfCategory>,
     download_count: i64,
@@ -572,9 +575,7 @@ fn cf_mod_to_hit(m: CfMod) -> modrinth::SearchHit {
     }
     modrinth::SearchHit {
         project_id: cf_id_to_modrinth(m.id),
-        project_type: class_to_project_type(
-            m.categories.first().and_then(|c| c.class_id).unwrap_or(6),
-        ),
+        project_type: class_to_project_type(mod_class_id(&m)),
         slug: m.slug.clone(),
         author: m
             .authors
@@ -607,9 +608,7 @@ fn cf_mod_to_project(m: &CfMod, body: String) -> modrinth::Project {
         title: m.name.clone(),
         description: m.summary.clone().unwrap_or_default(),
         body,
-        project_type: class_to_project_type(
-            m.categories.first().and_then(|c| c.class_id).unwrap_or(6),
-        ),
+        project_type: class_to_project_type(mod_class_id(m)),
         categories: m.categories.iter().map(|c| c.slug.clone()).collect(),
         additional_categories: vec![],
         game_versions: m.game_versions.clone().unwrap_or_default(),
@@ -645,6 +644,13 @@ fn cf_mod_to_project(m: &CfMod, body: String) -> modrinth::Project {
         updated: m.date_modified.clone(),
         versions: vec![],
     }
+}
+
+/// A project's class: its own `classId`, else its first category's, else mods.
+fn mod_class_id(m: &CfMod) -> i32 {
+    m.class_id
+        .or_else(|| m.categories.first().and_then(|c| c.class_id))
+        .unwrap_or(6)
 }
 
 fn class_to_project_type(class_id: i32) -> String {

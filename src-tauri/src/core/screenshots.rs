@@ -81,10 +81,10 @@ pub fn remove(game_dir: &Path, name: &str) -> Result<()> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// A screenshot name is one path segment, and it is an image.
+/// A screenshot name is one path segment, and it is an image. It is used
+/// exactly as given, since trimming would name a different file.
 fn checked_name(name: &str) -> Result<&str> {
-    let name = name.trim();
-    let rejected = name.is_empty()
+    let rejected = name.trim().is_empty()
         || name == "."
         || name == ".."
         || name.contains(['/', '\\', ':'])
@@ -161,6 +161,12 @@ mod tests {
         assert!(remove(&game, "notes.txt").is_err());
         assert!(remove(&game, "missing.png").is_err());
         assert!(remove(&game, "").is_err());
+        assert!(remove(&game, "   ").is_err());
+
+        // A name is taken as given, not trimmed into a different file.
+        std::fs::write(dir(&game).join(" padded.png"), b"png").unwrap();
+        assert!(remove(&game, "padded.png").is_err());
+        remove(&game, " padded.png").unwrap();
 
         remove(&game, "shot.png").unwrap();
         assert!(list(&game).unwrap().is_empty());

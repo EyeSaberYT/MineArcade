@@ -70,6 +70,7 @@ pub fn run() {
             // into the bundle config.
             let root = app.state::<state::AppState>().paths.root.clone();
             app.asset_protocol_scope().allow_directory(&root, true)?;
+            app.state::<state::AppState>().adopt_orphaned_games(app.handle());
             log::info!(
                 "Orbit Launcher {} starting on {} ({})",
                 env!("CARGO_PKG_VERSION"),

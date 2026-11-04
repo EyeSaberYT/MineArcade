@@ -54,16 +54,16 @@ pub async fn scan_instance(state: State<'_, AppState>, id: String) -> Result<Sca
     .await
     .map_err(|error| LauncherError::msg(format!("The scan could not run: {error}")))?;
 
-    let mut files: Vec<FileReport> = scanned
-        .into_iter()
-        // The only way `scan_archive` returns an error is a race — the file
-        // vanished between listing and opening. Ordinary read failures are
-        // reported as findings so they never disappear silently.
-        .filter_map(Result::ok)
-        .collect();
+    // Read failures come back as `unreadable` findings, so every listed file
+    // is in the report and none can drop out silently.
+    let mut files: Vec<FileReport> = scanned;
 
-    // Pass 2 — online, best effort.
-    let hashes: Vec<String> = files.iter().map(|file| file.sha1.clone()).collect();
+    // Pass 2 — online, best effort. An unreadable file has no hash to ask about.
+    let hashes: Vec<String> = files
+        .iter()
+        .filter(|file| !file.sha1.is_empty())
+        .map(|file| file.sha1.clone())
+        .collect();
     let known = lookup_provenance(&state, &hashes).await;
     let provenance_checked = known.is_some();
     if let Some(known) = known {

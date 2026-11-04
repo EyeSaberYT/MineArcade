@@ -131,7 +131,12 @@ function onLinkClick(event) {
   event.preventDefault();
   if (href.startsWith('#')) {
     // Tables of contents keep working: jump to the (prefixed) anchor.
-    const name = decodeURIComponent(href.slice(1));
+    let name;
+    try {
+      name = decodeURIComponent(href.slice(1));
+    } catch {
+      name = href.slice(1);
+    }
     if (!name) return;
     const root = event.currentTarget;
     const target =

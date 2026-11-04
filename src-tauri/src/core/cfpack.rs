@@ -18,7 +18,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use super::download::{download_many, DownloadSpec, Progress, ProgressSink};
-use super::instance::{InstalledProject, LoaderKind};
+use super::instance::{content_dir, InstalledProject, LoaderKind};
 use super::modpack::ModpackPreview;
 use super::path_security::{
     destination_is_within, is_safe_archive_path, is_safe_filename,
@@ -220,9 +220,8 @@ pub async fn install(
                 versions.extend(batch);
                 ok_chunks += 1;
             }
-            // A single dead file id shouldn't sink a 300-mod pack; only fail
-            // outright when nothing resolved at all.
-            Err(_) => continue,
+            // Files of a failed batch end up in the missing-files report below.
+            Err(error) => log::warn!("CurseForge file lookup failed: {error}"),
         }
     }
     if ok_chunks == 0 && !file_ids.is_empty() {
@@ -269,30 +268,45 @@ pub async fn install(
         }
     }
 
+    // ---- refuse to install an incomplete pack -----------------------------
+    // Files CurseForge didn't return, or returned without a usable download
+    // (authors can disable third-party downloads), would otherwise vanish
+    // from the instance without a word.
+    let missing = missing_files(&manifest.files, &versions);
+    if !missing.is_empty() {
+        return Err(LauncherError::msg(missing_message(&missing)));
+    }
+
     // ---- download the mods ------------------------------------------------
     let mut specs = vec![];
     let mut records: Vec<InstalledProject> = vec![];
-    let mods_dir = game_dir.join("mods");
-    std::fs::create_dir_all(&mods_dir)?;
-    if !destination_is_within(game_dir, &mods_dir) {
-        return Err(LauncherError::msg(
-            "The mods folder resolves outside this instance.",
-        ));
-    }
 
     for version in &versions {
         let Some(file) = version.files.first() else {
             continue;
         };
-        if file.url.is_empty() {
+        if file.url.is_empty() || !is_safe_filename(&file.filename) {
+            // Only optional files get here; required ones failed above.
+            log::warn!("Skipping optional CurseForge file {:?}", file.filename);
             continue;
         }
-        if !is_safe_filename(&file.filename) {
-            log::warn!("Skipping CurseForge file with unsafe filename: {:?}", file.filename);
-            continue;
+        let project = projects.get(&version.project_id);
+        let project_type = project
+            .map(|p| p.project_type.clone())
+            .unwrap_or_else(|| "mod".into());
+
+        // Resource packs and shaders ship in packs too; each goes to its own
+        // folder rather than `mods/`.
+        let folder = content_dir(game_dir, &project_type);
+        std::fs::create_dir_all(&folder)?;
+        if !destination_is_within(game_dir, &folder.join(&file.filename)) {
+            return Err(LauncherError::msg(
+                "The content folder resolves outside this instance.",
+            ));
         }
+
         let filename = file.filename.clone();
-        let mut spec = DownloadSpec::new(&file.url, mods_dir.join(&filename))
+        let mut spec = DownloadSpec::new(&file.url, folder.join(&filename))
             .with_size(file.size)
             .with_label(&file.filename);
         if let Some(sha1) = file.hashes.get("sha1") {
@@ -303,7 +317,6 @@ pub async fn install(
         }
         specs.push(spec);
 
-        let project = projects.get(&version.project_id);
         records.push(InstalledProject {
             project_id: version.project_id.clone(),
             version_id: version.id.clone(),
@@ -311,9 +324,7 @@ pub async fn install(
                 .map(|p| p.title.clone())
                 .unwrap_or_else(|| version.name.clone()),
             icon_url: project.and_then(|p| p.icon_url.clone()),
-            project_type: project
-                .map(|p| p.project_type.clone())
-                .unwrap_or_else(|| "mod".into()),
+            project_type,
             files: vec![filename],
             installed_at: Some(chrono::Utc::now().to_rfc3339()),
         });
@@ -346,6 +357,55 @@ pub async fn install(
     });
 
     Ok(records)
+}
+
+/// A required manifest entry that can't be downloaded.
+#[derive(Debug, PartialEq)]
+struct MissingFile {
+    project_id: i64,
+    file_id: i64,
+    /// The file name, when CurseForge told us one.
+    name: Option<String>,
+}
+
+/// Required manifest files that weren't resolved, or were resolved without a
+/// download URL or with a file name that isn't safe to write.
+fn missing_files(manifest_files: &[CfManifestFile], versions: &[Version]) -> Vec<MissingFile> {
+    let resolved: HashMap<i64, &Version> = versions
+        .iter()
+        .filter_map(|v| Some((v.id.rsplit(':').next()?.parse().ok()?, v)))
+        .collect();
+
+    manifest_files
+        .iter()
+        .filter(|f| f.required)
+        .filter_map(|f| {
+            let file = resolved.get(&f.file_id).and_then(|v| v.files.first());
+            let usable = file.is_some_and(|file| !file.url.is_empty() && is_safe_filename(&file.filename));
+            (!usable).then(|| MissingFile {
+                project_id: f.project_id,
+                file_id: f.file_id,
+                name: file.map(|file| file.filename.clone()),
+            })
+        })
+        .collect()
+}
+
+fn missing_message(missing: &[MissingFile]) -> String {
+    let mut message = format!(
+        "{} file{} in this pack can't be downloaded from CurseForge (the author may have \
+         disabled third-party downloads, or the file was removed):",
+        missing.len(),
+        if missing.len() == 1 { "" } else { "s" }
+    );
+    for file in missing {
+        let name = file.name.as_deref().unwrap_or("unknown file");
+        message.push_str(&format!(
+            "\n• {name} (project {}, file {}): https://www.curseforge.com/projects/{}",
+            file.project_id, file.file_id, file.project_id
+        ));
+    }
+    message
 }
 
 #[cfg(test)]
@@ -412,6 +472,57 @@ mod tests {
         let m: CfManifest = serde_json::from_str(&manifest_json("quilt-0.26.3-beta.2")).unwrap();
         let (_, version) = m.loader_info();
         assert_eq!(version.as_deref(), Some("0.26.3-beta.2"));
+    }
+
+    fn resolved(project_id: i64, file_id: i64, filename: &str, url: &str) -> Version {
+        Version {
+            id: format!("cf:{project_id}:{file_id}"),
+            project_id: format!("cf:{project_id}"),
+            files: vec![crate::api::modrinth::VersionFile {
+                hashes: HashMap::new(),
+                url: url.into(),
+                filename: filename.into(),
+                primary: true,
+                size: 1,
+                file_type: None,
+            }],
+            ..Version::default()
+        }
+    }
+
+    #[test]
+    fn unresolved_or_undownloadable_required_files_are_reported() {
+        let manifest_file = |project_id, file_id, required| CfManifestFile {
+            project_id,
+            file_id,
+            required,
+        };
+        let files = vec![
+            manifest_file(1, 10, true),  // fine
+            manifest_file(2, 20, true),  // not returned by CurseForge
+            manifest_file(3, 30, true),  // no download URL
+            manifest_file(4, 40, false), // optional and missing: not reported
+            manifest_file(5, 50, true),  // unsafe file name
+        ];
+        let versions = vec![
+            resolved(1, 10, "a.jar", "https://edge.forgecdn.net/a.jar"),
+            resolved(3, 30, "c.jar", ""),
+            resolved(5, 50, "../e.jar", "https://edge.forgecdn.net/e.jar"),
+        ];
+
+        let missing = missing_files(&files, &versions);
+
+        assert_eq!(
+            missing,
+            vec![
+                MissingFile { project_id: 2, file_id: 20, name: None },
+                MissingFile { project_id: 3, file_id: 30, name: Some("c.jar".into()) },
+                MissingFile { project_id: 5, file_id: 50, name: Some("../e.jar".into()) },
+            ]
+        );
+        let message = missing_message(&missing);
+        assert!(message.starts_with("3 files"));
+        assert!(message.contains("c.jar (project 3, file 30): https://www.curseforge.com/projects/3"));
     }
 
     #[test]

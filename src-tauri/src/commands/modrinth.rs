@@ -5,7 +5,7 @@
 //! which is how stored projects, pinned versions and dependency entries
 //! come back to us later without anyone remembering where they came from.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, State};
 
@@ -13,7 +13,7 @@ use crate::api::curseforge::CurseForgeClient;
 use crate::api::modrinth::{ModrinthClient, Project, ResolvedFile, SearchFilters, SearchResponse, Tag, Version};
 use crate::core::download::{download_many, DownloadSpec, Progress, ProgressSink};
 use crate::core::instance::{content_dir, game_dir, Instance, InstalledProject, LoaderKind};
-use crate::core::path_security::{destination_is_within, is_safe_filename};
+use crate::core::path_security::{destination_is_within, is_safe_archive_path, is_safe_filename};
 use crate::core::{cfpack, modpack};
 use crate::core::{java, minecraft::loader};
 use crate::error::{LauncherError, Result};
@@ -272,6 +272,18 @@ async fn install_resolved(
 
     download_many(state.http.clone(), specs, concurrency, "install", sink.clone()).await?;
 
+    // Files just written. An update whose file name didn't change downloads
+    // over the old file, which must then survive the cleanup below.
+    let new_paths: Vec<PathBuf> = records
+        .iter()
+        .flat_map(|record| {
+            record
+                .files
+                .iter()
+                .filter_map(|file| tracked_file_path(&root, &record.project_type, file))
+        })
+        .collect();
+
     // Persist the new tracked content, removing stale entries for replaced projects.
     {
         let mut store = state.instances.write().await;
@@ -286,11 +298,12 @@ async fn install_resolved(
                 {
                     let old = entry.installed_projects.remove(previous);
                     for file in old.files {
-                        if !is_safe_filename(&file) {
+                        let Some(path) = tracked_file_path(&root, &old.project_type, &file) else {
+                            continue;
+                        };
+                        if new_paths.contains(&path) {
                             continue;
                         }
-                        let folder = content_dir(&root, &old.project_type);
-                        let path = folder.join(file);
                         if destination_is_within(&root, &path) && path.is_file() {
                             let _ = std::fs::remove_file(path);
                         }
@@ -316,6 +329,19 @@ async fn install_resolved(
     });
 
     Ok(records)
+}
+
+/// Where a tracked file lives. Single installs record a bare file name inside
+/// the project type's folder; pack installs record a game-dir relative path
+/// (`mods/a.jar`). `None` for anything unsafe.
+fn tracked_file_path(root: &Path, project_type: &str, file: &str) -> Option<PathBuf> {
+    if is_safe_filename(file) {
+        Some(content_dir(root, project_type).join(file))
+    } else if is_safe_archive_path(file) {
+        Some(root.join(file.replace('/', std::path::MAIN_SEPARATOR_STR)))
+    } else {
+        None
+    }
 }
 
 /// Install a project (and its required dependencies) into an instance.
@@ -412,6 +438,17 @@ pub async fn modrinth_install(
     install_resolved(&state, &app, &instance_id, resolved, true).await
 }
 
+/// Cache location for a downloaded pack, named after its version id. The
+/// provider's file name is untrusted and not unique across packs; the id is
+/// both once reduced to plain characters (`cf:1:2` → `cf_1_2`).
+fn pack_cache_path(cache_dir: &Path, version_id: &str, extension: &str) -> PathBuf {
+    let name: String = version_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .collect();
+    cache_dir.join(format!("pack-{name}.{extension}"))
+}
+
 /// Install a Modrinth or CurseForge modpack as a brand new instance.
 #[tauri::command]
 pub async fn modrinth_install_modpack(
@@ -439,12 +476,7 @@ pub async fn modrinth_install_modpack(
                 .ok_or_else(|| LauncherError::msg("That modpack has no published versions."))?,
         };
         let file = client.primary_file(&version).await?;
-
-        let mut base = file.filename.replace('/', "_");
-        if base.to_ascii_lowercase().ends_with(".zip") {
-            base.truncate(base.len() - ".zip".len());
-        }
-        let pack_path = state.paths.cache_dir().join(format!("{base}.zip"));
+        let pack_path = pack_cache_path(&state.paths.cache_dir(), &version.id, "zip");
 
         let mut spec = DownloadSpec::new(file.url.clone(), &pack_path)
             .with_size(file.size)
@@ -484,13 +516,8 @@ pub async fn modrinth_install_modpack(
     };
     let file = client.primary_file(&version).await?;
 
-    // Download the .mrpack into the cache first. Modrinth's file names already
-    // end in `.mrpack`, so only append the extension when it isn't there.
-    let mut base = file.filename.replace('/', "_");
-    if base.to_ascii_lowercase().ends_with(".mrpack") {
-        base.truncate(base.len() - ".mrpack".len());
-    }
-    let pack_path = state.paths.cache_dir().join(format!("{base}.mrpack"));
+    // Download the .mrpack into the cache first.
+    let pack_path = pack_cache_path(&state.paths.cache_dir(), &version.id, "mrpack");
 
     let mut spec = DownloadSpec::new(file.url.clone(), &pack_path)
         .with_size(file.size)
@@ -524,42 +551,46 @@ pub async fn modrinth_install_modpack(
     instance.notes = Some(project.description.clone());
 
     let dir = game_dir(&state.paths, &instance);
-    std::fs::create_dir_all(&dir)?;
+    let new_dir = NewInstanceDir::create(&state, &instance)?;
 
     // Install the loader, then the pack contents.
-    if let Some(loader_version) = loader_version.as_deref() {
-        if loader != LoaderKind::Vanilla {
-            let java_path = match loader {
-                LoaderKind::Forge | LoaderKind::NeoForge => java::detect(&state.paths, None, 17)
-                    .await
-                    .map(|r| r.as_path())
-                    .unwrap_or_else(|| PathBuf::from("java")),
-                _ => PathBuf::from("java"),
-            };
-            loader::install_loader(
-                &state.http,
-                &state.paths,
-                &dir,
-                loader,
-                &game_version,
-                loader_version,
-                &java_path,
-                state.sink(&app),
-            )
-            .await?;
+    let installed = async {
+        if let Some(loader_version) = loader_version.as_deref() {
+            if loader != LoaderKind::Vanilla {
+                let java_path = match loader {
+                    LoaderKind::Forge | LoaderKind::NeoForge => java::detect(&state.paths, None, 17)
+                        .await
+                        .map(|r| r.as_path())
+                        .unwrap_or_else(|| PathBuf::from("java")),
+                    _ => PathBuf::from("java"),
+                };
+                loader::install_loader(
+                    &state.http,
+                    &state.paths,
+                    &dir,
+                    loader,
+                    &game_version,
+                    loader_version,
+                    &java_path,
+                    state.sink(&app),
+                )
+                .await?;
+            }
         }
-    }
 
-    let concurrency = state.settings.read().await.concurrent_downloads;
-    let mut projects = modpack::install(
-        &state.http,
-        &state.modrinth_base().await,
-        &pack_path,
-        &dir,
-        concurrency,
-        state.sink(&app),
-    )
-    .await?;
+        let concurrency = state.settings.read().await.concurrent_downloads;
+        modpack::install(
+            &state.http,
+            &state.modrinth_base().await,
+            &pack_path,
+            &dir,
+            concurrency,
+            state.sink(&app),
+        )
+        .await
+    }
+    .await;
+    let mut projects = new_dir.keep_if_ok(installed)?;
 
     // Remember the pack project itself so update checks can see it.
     projects.push(InstalledProject {
@@ -583,6 +614,33 @@ pub async fn modrinth_install_modpack(
         store.persist(&state.paths, &instance.id)?;
     }
     Ok(instance)
+}
+
+/// The folder of an instance being created. A failed install removes it
+/// again, so no orphaned folder is left behind — unless it existed before.
+pub(crate) struct NewInstanceDir {
+    created: Option<PathBuf>,
+}
+
+impl NewInstanceDir {
+    pub(crate) fn create(state: &AppState, instance: &Instance) -> Result<Self> {
+        let root = state.paths.instance_dir(&instance.id);
+        let existed = root.exists();
+        std::fs::create_dir_all(game_dir(&state.paths, instance))?;
+        Ok(Self {
+            created: (!existed).then_some(root),
+        })
+    }
+
+    /// Pass `result` through, removing the folder first when it's an error.
+    pub(crate) fn keep_if_ok<T>(self, result: Result<T>) -> Result<T> {
+        if result.is_err() {
+            if let Some(root) = &self.created {
+                let _ = std::fs::remove_dir_all(root);
+            }
+        }
+        result
+    }
 }
 
 /// Shared tail of every CurseForge pack install: read the manifest, create the
@@ -610,42 +668,46 @@ pub(crate) async fn install_cf_pack(
     instance.notes = meta.map(|(p, _)| p.description.clone());
 
     let dir = game_dir(&state.paths, &instance);
-    std::fs::create_dir_all(&dir)?;
+    let new_dir = NewInstanceDir::create(&state, &instance)?;
 
     // Install the loader first so the pack lands in a working instance.
-    if let Some(version) = loader_version.as_deref() {
-        if loader != LoaderKind::Vanilla {
-            let java_path = match loader {
-                LoaderKind::Forge | LoaderKind::NeoForge => java::detect(&state.paths, None, 17)
-                    .await
-                    .map(|r| r.as_path())
-                    .unwrap_or_else(|| PathBuf::from("java")),
-                _ => PathBuf::from("java"),
-            };
-            loader::install_loader(
-                &state.http,
-                &state.paths,
-                &dir,
-                loader,
-                &game_version,
-                version,
-                &java_path,
-                state.sink(&app),
-            )
-            .await?;
+    let installed = async {
+        if let Some(version) = loader_version.as_deref() {
+            if loader != LoaderKind::Vanilla {
+                let java_path = match loader {
+                    LoaderKind::Forge | LoaderKind::NeoForge => java::detect(&state.paths, None, 17)
+                        .await
+                        .map(|r| r.as_path())
+                        .unwrap_or_else(|| PathBuf::from("java")),
+                    _ => PathBuf::from("java"),
+                };
+                loader::install_loader(
+                    &state.http,
+                    &state.paths,
+                    &dir,
+                    loader,
+                    &game_version,
+                    version,
+                    &java_path,
+                    state.sink(&app),
+                )
+                .await?;
+            }
         }
-    }
 
-    let concurrency = state.settings.read().await.concurrent_downloads;
-    let mut projects = cfpack::install(
-        &state.http,
-        &manifest,
-        &pack_path,
-        &dir,
-        concurrency,
-        state.sink(&app),
-    )
-    .await?;
+        let concurrency = state.settings.read().await.concurrent_downloads;
+        cfpack::install(
+            &state.http,
+            &manifest,
+            &pack_path,
+            &dir,
+            concurrency,
+            state.sink(&app),
+        )
+        .await
+    }
+    .await;
+    let mut projects = new_dir.keep_if_ok(installed)?;
 
     // cfpack::install ends with a placeholder pack record; replace it with the
     // API-backed one when we know the pack's real ids, so update checks work.
@@ -719,43 +781,13 @@ async fn check_updates(state: &AppState, instance_id: &str) -> Result<Vec<Update
         if installed.project_id == crate::commands::orbit::PROJECT_ID {
             continue;
         }
-        let is_cf = installed.project_id.starts_with("cf:");
-
+        // The pack record only says where the instance came from. Updating
+        // means reinstalling a whole instance, which the per-file update
+        // path can't do (it used to drop the pack archive into `mods/`).
         if installed.project_type == "modpack" {
-            // Re-check the pack project itself for a newer version.
-            let (project, versions) = if is_cf {
-                let Ok(project) = cf.project(&installed.project_id).await else {
-                    continue;
-                };
-                let Ok(versions) = cf.versions(&installed.project_id, &[], &[]).await else {
-                    continue;
-                };
-                (project, versions)
-            } else {
-                let Ok(project) = client.project(&installed.project_id).await else {
-                    continue;
-                };
-                let Ok(versions) = client.versions(&installed.project_id, &[], &[]).await else {
-                    continue;
-                };
-                (project, versions)
-            };
-            if let Some(latest) = versions.into_iter().next() {
-                if latest.id != installed.version_id {
-                    updates.push(UpdateInfo {
-                        project_id: installed.project_id.clone(),
-                        title: project.title.clone(),
-                        icon_url: project.icon_url.clone(),
-                        current_version_id: installed.version_id.clone(),
-                        latest_version_id: latest.id.clone(),
-                        latest_version_name: latest.version_number.clone(),
-                        changelog: latest.changelog.clone(),
-                        project_type: installed.project_type.clone(),
-                    });
-                }
-            }
             continue;
         }
+        let is_cf = installed.project_id.starts_with("cf:");
 
         let game_versions = vec![instance.game_version.clone()];
         let loaders = loader_query(&instance, &installed.project_type)
@@ -825,18 +857,31 @@ pub async fn modrinth_apply_update(
     version_id: String,
 ) -> Result<()> {
     let _ = &project_id;
-    let file = if version_id.starts_with("cf:") {
-        let cf = cf_client(&state);
-        let version = cf.version(&version_id).await?;
-        cf.primary_file(&version).await?
-    } else {
-        let client = client(&state).await;
-        let version = client.version(&version_id).await?;
-        client.primary_file(&version).await?
-    };
+    let file = update_file(&state, &version_id).await?;
     install_resolved(&state, &app, &instance_id, vec![file], true).await?;
     Ok(())
 }
+
+/// The file an update installs. Refuses modpacks: their file is a pack
+/// archive, not content, and must never land in a content folder.
+async fn update_file(state: &AppState, version_id: &str) -> Result<ResolvedFile> {
+    let file = if version_id.starts_with("cf:") {
+        let cf = cf_client(state);
+        let version = cf.version(version_id).await?;
+        cf.primary_file(&version).await?
+    } else {
+        let client = client(state).await;
+        let version = client.version(version_id).await?;
+        client.primary_file(&version).await?
+    };
+    if file.project_type == "modpack" {
+        return Err(LauncherError::msg(
+            "Modpacks can't be updated in place — install the new version as a new instance.",
+        ));
+    }
+    Ok(file)
+}
+
 /// Update every outdated project in an instance.
 #[tauri::command]
 pub async fn modrinth_update_all(
@@ -847,15 +892,7 @@ pub async fn modrinth_update_all(
     let updates = check_updates(&state, &instance_id).await?;
     let count = updates.len();
     for update in updates {
-        let file = if update.latest_version_id.starts_with("cf:") {
-            let cf = cf_client(&state);
-            let version = cf.version(&update.latest_version_id).await?;
-            cf.primary_file(&version).await?
-        } else {
-            let client = client(&state).await;
-            let version = client.version(&update.latest_version_id).await?;
-            client.primary_file(&version).await?
-        };
+        let file = update_file(&state, &update.latest_version_id).await?;
         install_resolved(&state, &app, &instance_id, vec![file], true).await?;
     }
     Ok(count)
@@ -938,4 +975,31 @@ pub async fn modrinth_dependencies(
         )
         .await
         .unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pack_cache_names_come_from_the_version_id() {
+        let cache = Path::new("cache");
+        assert_eq!(pack_cache_path(cache, "AbC123", "mrpack"), cache.join("pack-AbC123.mrpack"));
+        assert_eq!(pack_cache_path(cache, "cf:12:34", "zip"), cache.join("pack-cf_12_34.zip"));
+        assert_eq!(pack_cache_path(cache, "../..\\x", "zip"), cache.join("pack-______x.zip"));
+    }
+
+    #[test]
+    fn tracked_files_resolve_in_both_recorded_forms() {
+        let root = Path::new("game");
+        assert_eq!(
+            tracked_file_path(root, "resourcepack", "a.zip"),
+            Some(root.join("resourcepacks").join("a.zip"))
+        );
+        assert_eq!(
+            tracked_file_path(root, "mod", "mods/a.jar"),
+            Some(root.join("mods").join("a.jar"))
+        );
+        assert_eq!(tracked_file_path(root, "mod", "../a.jar"), None);
+    }
 }

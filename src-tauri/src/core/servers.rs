@@ -32,6 +32,10 @@ const KEY_ICON: &str = "icon";
 const KEY_HIDDEN: &str = "hidden";
 const KEY_ACCEPT_TEXTURES: &str = "acceptTextures";
 
+/// Most a gzipped list may inflate to. A real list is a few KB even with icons
+/// on every entry; the cap keeps a gzip bomb from exhausting memory.
+const MAX_DECOMPRESSED_BYTES: u64 = 16 * 1024 * 1024;
+
 /// One entry of the in-game multiplayer list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,9 +49,12 @@ pub struct ServerEntry {
     pub icon: Option<String>,
     /// Hidden entries only appear in game while "hidden servers" is toggled on.
     pub hidden: bool,
-    /// Legacy "server sent resource packs" flag. The game still writes it, and
-    /// Orbit Launcher carries it rather than resetting a choice it did not make.
-    pub accept_textures: bool,
+    /// "Server resource packs" choice: `Some(true)` enabled, `Some(false)`
+    /// disabled, and `None` — no key in the file, sent as `null` — for the
+    /// game's default of asking. Orbit Launcher carries it rather than
+    /// resetting a choice it did not make.
+    #[serde(default)]
+    pub accept_textures: Option<bool>,
 }
 
 /// A whole `servers.dat`.
@@ -141,7 +148,7 @@ pub fn ensure_server(game_dir: &Path, name: &str, address: &str) -> Result<bool>
             address: address.to_string(),
             icon: None,
             hidden: false,
-            accept_textures: true,
+            accept_textures: Some(true),
         },
     );
     write(&path, &list)?;
@@ -205,8 +212,8 @@ fn entry_from(value: &Value) -> Option<ServerEntry> {
         _ => None,
     };
     let flag = |key: &str| match map.get(key) {
-        Some(Value::Byte(found)) => *found != 0,
-        _ => false,
+        Some(Value::Byte(found)) => Some(*found != 0),
+        _ => None,
     };
 
     let address = text(KEY_ADDRESS).unwrap_or_default().to_string();
@@ -221,7 +228,8 @@ fn entry_from(value: &Value) -> Option<ServerEntry> {
         icon: text(KEY_ICON)
             .filter(|icon| !icon.is_empty())
             .map(str::to_string),
-        hidden: flag(KEY_HIDDEN),
+        hidden: flag(KEY_HIDDEN).unwrap_or(false),
+        // A missing key is the game's "prompt", not "disabled".
         accept_textures: flag(KEY_ACCEPT_TEXTURES),
     })
 }
@@ -232,10 +240,10 @@ fn entry_value(entry: &ServerEntry) -> Value {
     map.insert(KEY_NAME.to_string(), Value::String(entry.name.clone()));
     map.insert(KEY_ADDRESS.to_string(), Value::String(entry.address.clone()));
     map.insert(KEY_HIDDEN.to_string(), Value::Byte(i8::from(entry.hidden)));
-    map.insert(
-        KEY_ACCEPT_TEXTURES.to_string(),
-        Value::Byte(i8::from(entry.accept_textures)),
-    );
+    // Omitted for "prompt", which is how the game itself stores that choice.
+    if let Some(accept) = entry.accept_textures {
+        map.insert(KEY_ACCEPT_TEXTURES.to_string(), Value::Byte(i8::from(accept)));
+    }
 
     // Omitted rather than written empty: the game reads a present icon as PNG
     // data and fails to decode an empty string.
@@ -250,8 +258,17 @@ fn entry_value(entry: &ServerEntry) -> Value {
 /// form some third-party editors leave behind.
 fn read_nbt(bytes: &[u8]) -> Result<Value> {
     let mut raw = Vec::new();
-    let decompressed = GzDecoder::new(bytes)
-        .read_to_end(&mut raw)
+    // Read one byte past the cap so an oversized file is told apart from one
+    // that is exactly at it.
+    let inflated = GzDecoder::new(bytes)
+        .take(MAX_DECOMPRESSED_BYTES + 1)
+        .read_to_end(&mut raw);
+    if inflated.is_ok() && raw.len() as u64 > MAX_DECOMPRESSED_BYTES {
+        return Err(LauncherError::msg(
+            "That servers.dat is far larger than any server list, so it wasn't read.",
+        ));
+    }
+    let decompressed = inflated
         .ok()
         .and_then(|_| fastnbt::from_bytes::<Value>(&raw).ok());
 
@@ -308,7 +325,7 @@ mod tests {
             address: address.to_string(),
             icon: None,
             hidden: false,
-            accept_textures: false,
+            accept_textures: Some(false),
         }
     }
 
@@ -333,7 +350,7 @@ mod tests {
         assert_eq!(list.servers.len(), 2);
         assert_eq!(list.servers[0].name, "My Server");
         assert_eq!(list.servers[0].address, "play.example.com");
-        assert!(list.servers[0].accept_textures, "the flag must survive");
+        assert_eq!(list.servers[0].accept_textures, Some(true), "the flag must survive");
         assert!(!list.servers[0].hidden);
         assert_eq!(list.servers[1].name, "Local");
         assert_eq!(list.servers[1].address, "localhost:25566");
@@ -347,14 +364,60 @@ mod tests {
                 ServerEntry {
                     icon: Some("iVBORw0KGgo=".to_string()),
                     hidden: true,
-                    accept_textures: true,
+                    accept_textures: Some(true),
                     ..entry("Creative", "c.example.com")
+                },
+                ServerEntry {
+                    accept_textures: None,
+                    ..entry("Prompt", "p.example.com")
                 },
             ],
         };
 
         let readback = parse(&encode(&list).expect("encode")).expect("parse");
         assert_eq!(readback, list);
+    }
+
+    /// No `acceptTextures` key is the game's "prompt"; saving must not turn it
+    /// into "disabled" by writing a 0.
+    #[test]
+    fn a_missing_texture_choice_stays_missing() {
+        let bytes = game_file(vec![compound(vec![
+            ("name", text("Prompt")),
+            ("ip", text("p.example.com")),
+        ])]);
+        let list = parse(&bytes).expect("parse");
+        assert_eq!(list.servers[0].accept_textures, None);
+
+        let Value::Compound(root) = ungzip(&encode(&list).expect("encode")) else {
+            panic!("root must be a compound");
+        };
+        let Some(Value::List(entries)) = root.get("servers") else {
+            panic!("servers must be a list");
+        };
+        let Value::Compound(first) = &entries[0] else {
+            panic!("entries must be compounds");
+        };
+        assert_eq!(first.get("acceptTextures"), None);
+
+        // The frontend sends `null` for it, or leaves it out.
+        let parsed: ServerEntry =
+            serde_json::from_str(r#"{"name":"a","address":"a","icon":null,"hidden":false}"#)
+                .expect("json");
+        assert_eq!(parsed.accept_textures, None);
+    }
+
+    #[test]
+    fn refuses_a_file_that_inflates_past_the_cap() {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+        let zeros = vec![0u8; 1024 * 1024];
+        for _ in 0..=MAX_DECOMPRESSED_BYTES / zeros.len() as u64 {
+            encoder.write_all(&zeros).expect("gzip");
+        }
+        let bomb = encoder.finish().expect("gzip");
+
+        let message = parse(&bomb).expect_err("oversized").to_string();
+        assert!(message.contains("larger"), "{message}");
     }
 
     #[test]

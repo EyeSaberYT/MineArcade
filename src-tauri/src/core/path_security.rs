@@ -48,3 +48,23 @@ pub fn canonical_path_is_within(root: &Path, candidate: &Path) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn archive_paths_reject_only_dot_dot_components() {
+        assert!(is_safe_archive_path("mods/foo..bar.jar"));
+        assert!(is_safe_archive_path("config/..hidden"));
+        assert!(!is_safe_archive_path("mods/../x.jar"));
+        assert!(!is_safe_archive_path(".."));
+        assert!(!is_safe_archive_path(""));
+        assert!(!is_safe_archive_path("/etc/passwd"));
+        assert!(!is_safe_archive_path("C:/x.jar"));
+        assert!(!is_safe_archive_path("mods/a.jar:stream"));
+        assert!(!is_safe_archive_path("mods\\a.jar"));
+        assert!(!is_safe_archive_path("mods/a\u{0}.jar"));
+        assert!(!is_safe_archive_path("mods//a.jar"));
+    }
+}

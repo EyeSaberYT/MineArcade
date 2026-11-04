@@ -10,6 +10,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
+use sha2::Sha512;
 
 use crate::error::{LauncherError, Result};
 
@@ -72,6 +73,10 @@ pub struct DownloadSpec {
     pub dest: PathBuf,
     /// Expected SHA-1 hex digest, when known.
     pub sha1: Option<String>,
+    /// Expected SHA-512 hex digest, when known. Checked alongside `sha1`.
+    pub sha512: Option<String>,
+    /// Further URLs for the same file, tried in order when `url` fails.
+    pub fallback_urls: Vec<String>,
     /// Expected size in bytes, used for progress totals before we have headers.
     pub size: u64,
     /// Optional human readable label for the UI.
@@ -90,6 +95,8 @@ impl DownloadSpec {
             url: url.into(),
             dest: dest.into(),
             sha1: None,
+            sha512: None,
+            fallback_urls: vec![],
             size: 0,
             label: None,
             headers: vec![],
@@ -104,6 +111,16 @@ impl DownloadSpec {
 
     pub fn with_sha1(mut self, sha1: impl Into<String>) -> Self {
         self.sha1 = Some(sha1.into());
+        self
+    }
+
+    pub fn with_sha512(mut self, sha512: impl Into<String>) -> Self {
+        self.sha512 = Some(sha512.into());
+        self
+    }
+
+    pub fn with_fallback_urls(mut self, urls: Vec<String>) -> Self {
+        self.fallback_urls.extend(urls);
         self
     }
 
@@ -166,6 +183,27 @@ pub async fn sha1_file(path: &Path) -> Result<String> {
     .map_err(|e| LauncherError::msg(format!("hashing task failed: {e}")))?
 }
 
+/// Hash a file's contents with SHA-512.
+pub async fn sha512_file(path: &Path) -> Result<String> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || -> Result<String> {
+        use std::io::Read;
+        let mut file = std::fs::File::open(&path)?;
+        let mut hasher = Sha512::new();
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            let read = file.read(&mut buf)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buf[..read]);
+        }
+        Ok(to_hex(&hasher.finalize()))
+    })
+    .await
+    .map_err(|e| LauncherError::msg(format!("hashing task failed: {e}")))?
+}
+
 /// True when the file exists and matches the expected checksum.
 pub async fn is_valid(path: &Path, expected_sha1: Option<&str>) -> bool {
     if !path.exists() {
@@ -180,7 +218,22 @@ pub async fn is_valid(path: &Path, expected_sha1: Option<&str>) -> bool {
     }
 }
 
+/// [`is_valid`] for a spec: every digest it declares must match.
+async fn spec_is_valid(spec: &DownloadSpec) -> bool {
+    if !is_valid(&spec.dest, spec.sha1.as_deref()).await {
+        return false;
+    }
+    match spec.sha512.as_deref() {
+        None => true,
+        Some(expected) => sha512_file(&spec.dest)
+            .await
+            .is_ok_and(|actual| actual.eq_ignore_ascii_case(expected)),
+    }
+}
+
 /// Download a single file, verifying its checksum when provided.
+///
+/// `spec.url` is tried first, then each of `spec.fallback_urls` in order.
 ///
 /// Returns `Ok(true)` when the file was fetched, `Ok(false)` when it already
 /// existed and was valid.
@@ -192,7 +245,7 @@ pub async fn download_one(
     let already_there = if spec.quick_verify && spec.size > 0 {
         std::fs::metadata(&spec.dest).is_ok_and(|meta| meta.len() == spec.size)
     } else {
-        is_valid(&spec.dest, spec.sha1.as_deref()).await
+        spec_is_valid(spec).await
     };
     if already_there {
         return Ok(false);
@@ -207,32 +260,67 @@ pub async fn download_one(
         })?;
     }
 
-    let mut request = http.get(&spec.url);
+    let mut last_error = None;
+    for url in std::iter::once(&spec.url).chain(&spec.fallback_urls) {
+        // A unique sibling per attempt: `x.jar` and `x.zip`, or two specs
+        // aimed at the same file, must never share a temporary.
+        let tmp = temp_path(&spec.dest);
+        match fetch_to(http, spec, url, &tmp, on_bytes).await {
+            Ok(()) => return Ok(true),
+            Err(error) => {
+                let _ = std::fs::remove_file(&tmp);
+                last_error = Some(error);
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| LauncherError::msg("No download URL.")))
+}
+
+/// `<dest file name>.<random>.part`, next to `dest`.
+fn temp_path(dest: &Path) -> PathBuf {
+    let mut name = dest.file_name().unwrap_or_default().to_os_string();
+    let unique = uuid::Uuid::new_v4().simple().to_string();
+    name.push(format!(".{}.part", &unique[..12]));
+    dest.with_file_name(name)
+}
+
+/// Stream `url` into `tmp`, verify it against the spec, then move it to
+/// `spec.dest`. The caller removes `tmp` when this fails.
+async fn fetch_to(
+    http: &reqwest::Client,
+    spec: &DownloadSpec,
+    url: &str,
+    tmp: &Path,
+    on_bytes: &(dyn Fn(u64) + Send + Sync),
+) -> Result<()> {
+    let mut request = http.get(url);
     for (name, value) in &spec.headers {
         request = request.header(name, value);
     }
     let response = request.send().await?;
     if !response.status().is_success() {
         return Err(LauncherError::msg(format!(
-            "Download failed ({}): {}",
-            response.status(),
-            spec.url
+            "Download failed ({}): {url}",
+            response.status()
         )));
     }
 
     // Stream to a temporary file so a cancelled download never leaves a
     // half-written jar in place.
-    let tmp = spec.dest.with_extension("part");
-    let mut file = std::fs::File::create(&tmp).map_err(|e| {
+    let mut file = std::fs::File::create(tmp).map_err(|e| {
         LauncherError::msg(format!("Couldn't create {}: {e}", tmp.display()))
     })?;
-    let mut hasher = Sha1::new();
+    let mut sha1 = Sha1::new();
+    let mut sha512 = spec.sha512.as_ref().map(|_| Sha512::new());
     let mut stream = response.bytes_stream();
 
     use std::io::Write;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
-        hasher.update(&chunk);
+        sha1.update(&chunk);
+        if let Some(hasher) = sha512.as_mut() {
+            hasher.update(&chunk);
+        }
         file.write_all(&chunk).map_err(|e| {
             LauncherError::msg(format!("Couldn't write {}: {e}", tmp.display()))
         })?;
@@ -243,14 +331,19 @@ pub async fn download_one(
     })?;
     drop(file);
 
-    if let Some(expected) = spec.sha1.as_deref() {
-        let actual = to_hex(&hasher.finalize());
-        if !actual.eq_ignore_ascii_case(expected) {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(LauncherError::msg(format!(
-                "Checksum mismatch for {} (expected {expected}, got {actual})",
-                spec.dest.display()
-            )));
+    let actual_sha1 = to_hex(&sha1.finalize());
+    let actual_sha512 = sha512.map(|hasher| to_hex(&hasher.finalize()));
+    for (expected, actual) in [
+        (spec.sha1.as_deref(), Some(actual_sha1.as_str())),
+        (spec.sha512.as_deref(), actual_sha512.as_deref()),
+    ] {
+        if let (Some(expected), Some(actual)) = (expected, actual) {
+            if !actual.eq_ignore_ascii_case(expected) {
+                return Err(LauncherError::msg(format!(
+                    "Checksum mismatch for {} (expected {expected}, got {actual})",
+                    spec.dest.display()
+                )));
+            }
         }
     }
 
@@ -259,14 +352,14 @@ pub async fn download_one(
     if spec.dest.exists() {
         let _ = std::fs::remove_file(&spec.dest);
     }
-    std::fs::rename(&tmp, &spec.dest).map_err(|e| {
+    std::fs::rename(tmp, &spec.dest).map_err(|e| {
         LauncherError::msg(format!(
             "Couldn't move {} into {}: {e}",
             tmp.display(),
             spec.dest.display()
         ))
     })?;
-    Ok(true)
+    Ok(())
 }
 
 /// Download many files in parallel, reporting aggregate progress.
@@ -428,6 +521,49 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn temp_paths_are_unique_per_file_and_attempt() {
+        let jar = temp_path(Path::new("mods/x.jar"));
+        let zip = temp_path(Path::new("mods/x.zip"));
+        let again = temp_path(Path::new("mods/x.jar"));
+
+        let name = jar.file_name().unwrap().to_string_lossy().to_string();
+        assert!(name.starts_with("x.jar.") && name.ends_with(".part"), "{name}");
+        assert_ne!(jar, zip);
+        assert_ne!(jar, again);
+    }
+
+    /// A present file only counts as done when every declared digest matches.
+    #[tokio::test]
+    async fn existing_file_with_wrong_sha512_is_fetched_again() {
+        let dir = std::env::temp_dir().join(format!("orbit-launcher-dl-sha512-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dest = dir.join("a.jar");
+        std::fs::write(&dest, b"hello").unwrap();
+        let sha1 = sha1_file(&dest).await.unwrap();
+        let sha512 = sha512_file(&dest).await.unwrap();
+
+        let good = DownloadSpec::new("nope://never", &dest)
+            .with_sha1(sha1.clone())
+            .with_sha512(sha512);
+        assert!(!download_one(&reqwest::Client::new(), &good, &|_| {}).await.unwrap());
+
+        // Wrong sha512: it must try to download (and fail on the unusable
+        // URLs, which error instantly, leaving no temporary behind).
+        let bad = DownloadSpec::new("nope://never", &dest)
+            .with_sha1(sha1)
+            .with_sha512("00")
+            .with_fallback_urls(vec!["nope://also-never".into()]);
+        assert!(download_one(&reqwest::Client::new(), &bad, &|_| {}).await.is_err());
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".part"))
+            .collect();
+        assert!(leftovers.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[tokio::test]
     async fn present_files_are_counted_and_progress_is_throttled() {

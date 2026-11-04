@@ -53,13 +53,40 @@ pub async fn app_info(state: State<'_, AppState>) -> Result<AppInfo> {
     })
 }
 
-/// Reveal a file or folder in the OS file manager (Explorer / Finder / xdg-open).
+/// Show a file or folder in the OS file manager (Explorer / Finder / xdg-open): a
+/// folder is opened, a file is selected in its folder, never opened, since opening
+/// would run an `.exe`, `.bat` or `.lnk`. Only the launcher's data folder and the
+/// instances' game folders (which may be set elsewhere) can be shown.
 #[tauri::command]
-pub async fn system_reveal(app: AppHandle, path: String) -> Result<()> {
+pub async fn system_reveal(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<()> {
     use tauri_plugin_opener::OpenerExt;
-    app.opener()
-        .open_path(&path, None::<&str>)
-        .map_err(|e| crate::error::LauncherError::msg(e.to_string()))?;
+    let target = std::path::PathBuf::from(&path);
+    let mut roots = vec![state.paths.root.clone()];
+    roots.extend(
+        state
+            .instances
+            .read()
+            .await
+            .instances
+            .iter()
+            .map(|instance| crate::core::instance::game_dir(&state.paths, instance)),
+    );
+    // Canonical comparison: a symlink or junction inside a root can't lead outside it.
+    if !roots
+        .iter()
+        .any(|root| crate::core::path_security::canonical_path_is_within(root, &target))
+    {
+        return Err(crate::error::LauncherError::msg(
+            "Only the launcher's own folders can be opened.",
+        ));
+    }
+    let opener = app.opener();
+    let shown = if target.is_dir() {
+        opener.open_path(path, None::<&str>)
+    } else {
+        opener.reveal_item_in_dir(&target)
+    };
+    shown.map_err(|e| crate::error::LauncherError::msg(e.to_string()))?;
     Ok(())
 }
 

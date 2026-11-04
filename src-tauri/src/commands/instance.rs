@@ -171,6 +171,15 @@ pub async fn instance_create(
 
 #[tauri::command]
 pub async fn instance_update(state: State<'_, AppState>, mut instance: Instance) -> Result<Instance> {
+    let name = instance.name.trim();
+    if name.is_empty() {
+        return Err(LauncherError::msg("The instance name can't be empty."));
+    }
+    instance.name = name.to_string();
+    // The id picks the folder the icon is copied into, so it has to be a
+    // known instance before anything touches the disk.
+    state.instances.read().await.get(&instance.id)?;
+
     // A custom image chosen on the settings page is copied into the instance
     // folder here, matching create/import. Once stored, the icon already points
     // at that copy, so resolving again is a no-op rather than a self-copy.
@@ -183,10 +192,17 @@ pub async fn instance_update(state: State<'_, AppState>, mut instance: Instance)
         }
     }
 
+    // Merge onto the stored entry under the lock: the payload is the page's
+    // copy and may predate play sessions or installs that happened since.
+    let id = instance.id.clone();
     let mut store = state.instances.write().await;
-    *store.get_mut(&instance.id)? = instance.clone();
-    store.persist(&state.paths, &instance.id)?;
-    Ok(instance)
+    let updated = {
+        let entry = store.get_mut(&id)?;
+        entry.apply_user_edits(instance);
+        entry.clone()
+    };
+    store.persist(&state.paths, &id)?;
+    Ok(updated)
 }
 
 #[tauri::command]
@@ -215,6 +231,13 @@ pub async fn instance_duplicate(
     id: String,
     name: Option<String>,
 ) -> Result<Instance> {
+    // The game holds its worlds' files open while it runs (and locks them on
+    // Windows), so a copy taken now would fail partway or catch them mid-write.
+    if state.is_running(&id).await {
+        return Err(LauncherError::msg(
+            "Minecraft is playing this instance. Close the game before duplicating it.",
+        ));
+    }
     let source = state.instances.read().await.get(&id)?.clone();
 
     let mut copy = source.clone();
@@ -223,12 +246,16 @@ pub async fn instance_duplicate(
     copy.created = chrono::Utc::now().to_rfc3339();
     copy.last_played = None;
     copy.play_time_secs = 0;
+    // The files are copied into the new instance's own folder; keeping a
+    // custom game directory would point the copy back at the original's.
+    copy.settings.game_dir = None;
 
     // Recursively copy the game directory (minus caches, logs and metadata).
-    copy_game_dir(
-        &game_dir(&state.paths, &source),
-        &state.paths.instance_game_dir(&copy.id),
-    )?;
+    let target = state.paths.instance_game_dir(&copy.id);
+    if let Err(error) = copy_game_dir(&game_dir(&state.paths, &source), &target) {
+        let _ = std::fs::remove_dir_all(&target);
+        return Err(error);
+    }
 
     // The game directory is the instance folder now, so the copy already has
     // its own `icon.png`; re-point the field at it instead of leaving the
@@ -289,6 +316,11 @@ pub async fn instance_delete(
         || id.chars().any(char::is_control)
     {
         return Err(LauncherError::msg("Invalid instance id."));
+    }
+    if state.is_running(&id).await {
+        return Err(LauncherError::msg(
+            "Minecraft is playing this instance. Close the game before deleting it.",
+        ));
     }
 
     let mut store = state.instances.write().await;
@@ -423,6 +455,41 @@ fn filename_matches(tracked: &str, file_name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// The name a content file has when enabled, if it is one: `x.jar`, `x.zip`
+/// (any case) or either with a single `.disabled` suffix.
+fn content_base_name(file_name: &str) -> Option<&str> {
+    let base = file_name.strip_suffix(".disabled").unwrap_or(file_name);
+    let lower = base.to_ascii_lowercase();
+    (lower.ends_with(".jar") || lower.ends_with(".zip")).then_some(base)
+}
+
+/// Rename `from` to `to`, refusing to replace a file already at `to`.
+///
+/// `std::fs::rename` silently overwrites on every platform, so the new name is
+/// claimed with a hard link (which fails if it exists) before the old one goes.
+/// File systems without hard links fall back to a checked rename.
+fn rename_no_clobber(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
+    let taken = || LauncherError::msg("A file with that name already exists.");
+    match std::fs::hard_link(from, to) {
+        Ok(()) => {
+            if let Err(error) = std::fs::remove_file(from) {
+                // Leave exactly one copy behind, under the original name.
+                let _ = std::fs::remove_file(to);
+                return Err(error.into());
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(taken()),
+        Err(_) => {
+            if to.exists() {
+                return Err(taken());
+            }
+            std::fs::rename(from, to)?;
+            Ok(())
+        }
+    }
+}
+
 /// Accept only a listed content file directly inside one of the four
 /// user-managed content folders. This keeps IPC callers from renaming or
 /// deleting arbitrary files elsewhere in the game directory.
@@ -439,10 +506,7 @@ fn is_managed_content_file(root: &std::path::Path, path: &std::path::Path) -> bo
     let Some(name) = canonical_path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
-    let base_name = name.strip_suffix(".disabled").unwrap_or(name);
-    if !base_name.to_ascii_lowercase().ends_with(".jar")
-        && !base_name.to_ascii_lowercase().ends_with(".zip")
-    {
+    if content_base_name(name).is_none() {
         return false;
     }
 
@@ -472,10 +536,9 @@ pub async fn instance_content(state: State<'_, AppState>, id: String) -> Result<
             }
 
             // Accept `x.jar`, `x.zip` and their disabled variants.
-            let base = file_name.trim_end_matches(".disabled");
-            if !base.ends_with(".jar") && !base.ends_with(".zip") {
+            let Some(base) = content_base_name(&file_name) else {
                 continue;
-            }
+            };
 
             // Attribution only from the project the file itself came from.
             // A pack-level record (legacy or offline installs) says the file
@@ -521,19 +584,17 @@ pub async fn instance_toggle_content(
     }
     let source = source.canonicalize()?;
 
+    let source_text = source.to_string_lossy();
     let target = if enabled {
-        PathBuf::from(source.to_string_lossy().trim_end_matches(".disabled").to_string())
+        PathBuf::from(source_text.strip_suffix(".disabled").unwrap_or(&source_text))
     } else {
-        PathBuf::from(format!("{}.disabled", source.to_string_lossy()))
+        PathBuf::from(format!("{source_text}.disabled"))
     };
 
     if !canonical_path_is_within(&root, target.parent().unwrap_or(&root)) {
         return Err(LauncherError::msg("That file isn't part of this instance."));
     }
-    if target.exists() {
-        return Err(LauncherError::msg("A file with that name already exists."));
-    }
-    std::fs::rename(&source, &target)?;
+    rename_no_clobber(&source, &target)?;
     Ok(target.to_string_lossy().to_string())
 }
 
@@ -805,4 +866,43 @@ pub async fn modpack_export(
         &instance.installed_projects,
     )?;
     Ok(target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn content_names_match_the_guard() {
+        assert_eq!(content_base_name("a.jar"), Some("a.jar"));
+        assert_eq!(content_base_name("A.JAR"), Some("A.JAR"));
+        assert_eq!(content_base_name("pack.Zip.disabled"), Some("pack.Zip"));
+        // Only one `.disabled` comes off, exactly as toggling adds one.
+        assert_eq!(content_base_name("a.jar.disabled.disabled"), None);
+        assert_eq!(content_base_name("notes.txt"), None);
+    }
+
+    #[test]
+    fn toggling_never_overwrites_an_existing_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "orbit-launcher-toggle-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let enabled = dir.join("a.jar");
+        let disabled = dir.join("a.jar.disabled");
+        std::fs::write(&enabled, "new").unwrap();
+        std::fs::write(&disabled, "old").unwrap();
+
+        assert!(rename_no_clobber(&enabled, &disabled).is_err());
+        assert_eq!(std::fs::read_to_string(&disabled).unwrap(), "old");
+        assert_eq!(std::fs::read_to_string(&enabled).unwrap(), "new");
+
+        std::fs::remove_file(&disabled).unwrap();
+        rename_no_clobber(&enabled, &disabled).unwrap();
+        assert!(!enabled.exists());
+        assert_eq!(std::fs::read_to_string(&disabled).unwrap(), "new");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

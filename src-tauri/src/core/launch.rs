@@ -3,7 +3,7 @@
 //! This module is deliberately framework-agnostic; the Tauri command layer just
 //! wires it up and forwards progress events to the UI.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -15,7 +15,7 @@ use super::download::{Progress, ProgressSink};
 use super::instance::{self, Instance};
 use super::java;
 use super::minecraft::{self, LaunchContext};
-use super::paths::AppPaths;
+use super::paths::{read_json, write_json, AppPaths};
 use crate::error::{LauncherError, Result};
 
 /// Everything needed to start a game process.
@@ -232,17 +232,12 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
     }
 
     super::no_console(&mut command);
-
-    let mut child = command
-        .spawn()
-        .map_err(|e| LauncherError::Launch(format!("Couldn't start Java: {e}")))?;
-
-    let pid = child.id().unwrap_or(0);
-    let started = std::time::Instant::now();
+    own_process_group(&mut command);
 
     // Keep the whole transcript on disk for the crash viewer, while relaying
     // every line to the UI as it arrives. Both streams share one handle so
-    // stdout and stderr stay interleaved in the order they happened.
+    // stdout and stderr stay interleaved in the order they happened. Opened
+    // before the spawn: failing afterwards would leave a game nobody watches.
     let log_handle = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -250,6 +245,29 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
         .await
         .map_err(|e| LauncherError::msg(format!("Couldn't open {}: {e}", log_file.display())))?;
     let log_handle = Arc::new(tokio::sync::Mutex::new(log_handle));
+
+    // Stop pressed while the game was still being set up: don't start it at all.
+    let mut stop = stop;
+    if let Some(receiver) = stop.as_mut() {
+        if receiver.try_recv().is_ok() {
+            return Err(LauncherError::Launch("The launch was cancelled.".into()));
+        }
+    }
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| LauncherError::Launch(format!("Couldn't start Java: {e}")))?;
+
+    let pid = child.id().unwrap_or(0);
+    let started = std::time::Instant::now();
+    let running = RunningGame {
+        instance_id: instance.id.clone(),
+        pid,
+        started: chrono::Utc::now().timestamp(),
+    };
+    if pid != 0 {
+        record_running(paths, &running);
+    }
 
     if let Some(stdout) = child.stdout.take() {
         pump_output(
@@ -272,6 +290,7 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
 
     // Reap the child in the background so we don't leave a zombie.
     let watched = instance.id.clone();
+    let paths = paths.clone();
     tokio::spawn(async move {
         let status = match stop {
             Some(mut stop) => tokio::select! {
@@ -289,6 +308,7 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
             Ok(status) => log::info!("instance {watched} exited with {status}"),
             Err(error) => log::warn!("failed to wait for instance {watched}: {error}"),
         }
+        forget_running(&paths, &running);
         // The play time goes to the launcher's in-memory instance store (see AppState::game_sink),
         // which is what the UI reads and what gets saved; editing a fresh copy from disk here
         // would be invisible to it and overwritten by its next save.
@@ -340,8 +360,18 @@ pub async fn launch(request: LaunchRequest<'_>) -> Result<LaunchedProcess> {
     })
 }
 
-/// Force-close a game and everything it started (on Windows, `taskkill /T /F`).
-/// Killing only the Java process could leave processes it spawned behind.
+/// On unix, start the game as the leader of its own process group, so [`kill_tree`]
+/// can close it together with whatever it started. Windows uses `taskkill /T` instead.
+pub(crate) fn own_process_group(command: &mut tokio::process::Command) {
+    #[cfg(unix)]
+    command.process_group(0);
+    #[cfg(not(unix))]
+    let _ = command;
+}
+
+/// Force-close a game and everything it started (on Windows, `taskkill /T /F`; on unix,
+/// SIGKILL to the process group [`own_process_group`] gave it). Killing only the Java
+/// process could leave processes it spawned behind.
 pub async fn kill_tree(pid: u32) {
     if pid == 0 {
         return;
@@ -354,8 +384,9 @@ pub async fn kill_tree(pid: u32) {
     };
     #[cfg(not(windows))]
     let mut command = {
+        // A negative pid names the process group (whose id is the leader's pid).
         let mut command = tokio::process::Command::new("kill");
-        command.args(["-9", &pid.to_string()]);
+        command.args(["-9", "--", &format!("-{pid}")]);
         command
     };
     command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
@@ -364,6 +395,105 @@ pub async fn kill_tree(pid: u32) {
         Ok(status) if status.success() => {}
         Ok(status) => log::warn!("killing game process {pid} returned {status}"),
         Err(error) => log::warn!("couldn't kill game process {pid}: {error}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Games that outlive the launcher
+// ---------------------------------------------------------------------------
+
+/// A started game, kept in `<root>/running.json` until the launcher sees it exit.
+///
+/// Play time is added when the watcher in [`launch`] sees the game exit, but the game
+/// keeps running when the launcher quits first (`closeOnLaunch` quits right after a
+/// launch). The next launcher start finds these leftovers and credits them with
+/// [`orphan_play_secs`] once [`java_is_running`] says they're gone.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunningGame {
+    pub instance_id: String,
+    pub pid: u32,
+    /// Unix seconds.
+    pub started: i64,
+}
+
+/// Serialises the read-modify-writes of `running.json`.
+static RUNNING_FILE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn read_running(paths: &AppPaths) -> Vec<RunningGame> {
+    read_json(&paths.running_file()).ok().flatten().unwrap_or_default()
+}
+
+fn update_running(paths: &AppPaths, change: impl FnOnce(&mut Vec<RunningGame>)) {
+    let _guard = RUNNING_FILE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut games = read_running(paths);
+    change(&mut games);
+    if let Err(error) = write_json(&paths.running_file(), &games) {
+        log::warn!("couldn't update the list of running games: {error}");
+    }
+}
+
+pub fn record_running(paths: &AppPaths, game: &RunningGame) {
+    update_running(paths, |games| games.push(game.clone()));
+}
+
+pub fn forget_running(paths: &AppPaths, game: &RunningGame) {
+    update_running(paths, |games| games.retain(|g| g != game));
+}
+
+/// Every recorded game; read at startup, before this launcher has started any.
+pub fn load_running(paths: &AppPaths) -> Vec<RunningGame> {
+    let _guard = RUNNING_FILE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    read_running(paths)
+}
+
+/// Whether `pid` is still a running Java process. The name check keeps a pid the OS
+/// gave to some other program from passing for the game; a later Java reusing it only
+/// delays the credit, since [`orphan_play_secs`] goes by the game's own log.
+pub async fn java_is_running(pid: u32) -> bool {
+    #[cfg(windows)]
+    let mut command = {
+        let mut command = tokio::process::Command::new("tasklist");
+        command.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]);
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = tokio::process::Command::new("ps");
+        command.args(["-p", &pid.to_string(), "-o", "comm="]);
+        command
+    };
+    command.stdin(Stdio::null()).stderr(Stdio::null());
+    super::no_console(&mut command);
+    let Ok(output) = command.output().await else {
+        return false;
+    };
+    // tasklist: `"java.exe","1234",…`; ps: the command name, empty once it's gone.
+    let quoted_pid = format!("\"{pid}\"");
+    String::from_utf8_lossy(&output.stdout)
+        .to_lowercase()
+        .lines()
+        .any(|line| line.contains("java") && (cfg!(not(windows)) || line.contains(&quoted_pid)))
+}
+
+/// Seconds a game the launcher never saw exit was played: from its start until Minecraft
+/// last wrote `logs/latest.log` in its game folder, which it does until it closes. The
+/// real exit time is unknown, so this is the closest stand-in; without a log written
+/// since the start it's 0. Copies of one instance share that log, so overlapping copies
+/// can be over-credited.
+pub fn orphan_play_secs(game: &RunningGame, game_dir: &Path) -> u64 {
+    let last_write = std::fs::metadata(game_dir.join("logs").join("latest.log"))
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since| since.as_secs() as i64);
+    played_between(game.started, last_write, chrono::Utc::now().timestamp())
+}
+
+fn played_between(started: i64, last_write: Option<i64>, now: i64) -> u64 {
+    match last_write {
+        Some(end) if end > started => (end.min(now) - started) as u64,
+        _ => 0,
     }
 }
 
@@ -605,6 +735,8 @@ mod kill_tests {
             command.args(["-c", "sleep 60"]);
             command
         };
+        // Started the way games are, so unix kills it through its process group.
+        super::own_process_group(&mut command);
         let mut child = command.spawn().expect("start a long-running process");
         kill_tree(child.id().expect("pid")).await;
         let status = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())
@@ -612,5 +744,50 @@ mod kill_tests {
             .expect("the process is still running after kill_tree")
             .expect("wait for the process");
         assert!(!status.success());
+    }
+}
+
+#[cfg(test)]
+mod running_tests {
+    use super::*;
+
+    #[test]
+    fn running_games_are_recorded_until_forgotten() {
+        let root = std::env::temp_dir().join(format!("orbit-launcher-running-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let paths = AppPaths::new(&root);
+        let game = |pid| RunningGame { instance_id: "abc".into(), pid, started: 100 };
+
+        record_running(&paths, &game(1));
+        record_running(&paths, &game(2));
+        forget_running(&paths, &game(1));
+        assert_eq!(load_running(&paths), vec![game(2)]);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn orphaned_play_time_runs_until_the_last_log_write() {
+        assert_eq!(played_between(100, Some(160), 1000), 60);
+        // A log from before the start belongs to an earlier game.
+        assert_eq!(played_between(100, Some(90), 1000), 0);
+        assert_eq!(played_between(100, None, 1000), 0);
+        // A clock jump never credits time that hasn't happened yet.
+        assert_eq!(played_between(100, Some(5000), 1000), 900);
+    }
+
+    #[tokio::test]
+    async fn only_a_live_java_process_counts_as_the_game() {
+        // This test binary is alive but isn't Java: a reused pid must not pass for the game.
+        assert!(!java_is_running(std::process::id()).await);
+        let mut child = if cfg!(windows) {
+            tokio::process::Command::new("cmd").args(["/c", "exit 0"]).spawn()
+        } else {
+            tokio::process::Command::new("true").spawn()
+        }
+        .expect("start a short process");
+        let pid = child.id().expect("pid");
+        child.wait().await.expect("wait");
+        assert!(!java_is_running(pid).await);
     }
 }

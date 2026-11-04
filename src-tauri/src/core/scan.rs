@@ -397,25 +397,39 @@ fn apply_indicators(contents: &[u8], entry: &str, is_bytecode: bool) -> Vec<Find
 
 /// SHA-1 of a file, hex encoded. Modrinth's file database is keyed by this.
 pub fn sha1_file(path: &Path) -> Result<String> {
-    let bytes = fs::read(path)?;
+    Ok(sha1_hex(&fs::read(path)?))
+}
+
+fn sha1_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha1::new();
-    hasher.update(&bytes);
-    Ok(hex(&hasher.finalize()))
+    hasher.update(bytes);
+    hex(&hasher.finalize())
 }
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// How many archives deep a scan follows archives nested in archives
+/// (jar-in-jar libraries under `META-INF/jars/`, packs zipped inside packs).
+/// Each level is read into memory, so this and the shared budgets bound it.
+const MAX_NESTING: usize = 3;
+
+/// What a scan has spent so far. One budget covers a top-level archive and
+/// everything nested inside it, so nesting can't multiply the work.
+#[derive(Default)]
+struct Budget {
+    entries: usize,
+    bytes: u64,
+    truncated: bool,
+}
+
 /// Scan a single archive and describe what is inside it.
 ///
-/// Failure to open the file is an error; failure to *parse* it as a zip is a
-/// finding, because a `.jar` that is not a jar is itself the interesting fact.
-pub fn scan_archive(path: &Path, relative_to: &Path) -> Result<FileReport> {
-    let metadata = fs::metadata(path)?;
-    let size = metadata.len();
-    let sha1 = sha1_file(path)?;
-
+/// Never fails: a file that can't be read is an `unreadable` finding, and one
+/// that can't be parsed as a zip is a `not_an_archive` finding, because a
+/// `.jar` that is not a jar is itself the interesting fact.
+pub fn scan_archive(path: &Path, relative_to: &Path) -> FileReport {
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -427,64 +441,78 @@ pub fn scan_archive(path: &Path, relative_to: &Path) -> Result<FileReport> {
     let folder = path.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy());
     let kind = kind_for_folder(folder.as_deref()).to_string();
 
-    let mut findings: Vec<Finding> = Vec::new();
-    let mut truncated = false;
-
-    let Ok(file) = fs::File::open(path) else {
-        findings.push(Finding {
-            severity: Severity::Warning,
-            code: "unreadable".to_string(),
-            summary: "Could not be opened".to_string(),
-            detail: format!(
-                "Orbit Launcher could not read {file_name}. It may be locked by another \
-                 process, or the download may have been interrupted."
-            ),
-            entry: None,
-        });
-        return Ok(FileReport {
-            file: display_relative(path, relative_to),
-            kind,
-            size,
-            sha1,
-            findings,
-            provenance: Provenance::unchecked(),
-            truncated: false,
-        });
+    let mut report = FileReport {
+        file: display_relative(path, relative_to),
+        kind,
+        size: 0,
+        sha1: String::new(),
+        findings: Vec::new(),
+        provenance: Provenance::unchecked(),
+        truncated: false,
     };
 
-    let mut archive = match zip::ZipArchive::new(file) {
+    // Read once, so the hash and the scan describe the same bytes.
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            report.size = fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+            report.findings.push(Finding {
+                severity: Severity::Warning,
+                code: "unreadable".to_string(),
+                summary: "Could not be opened".to_string(),
+                detail: format!(
+                    "Orbit Launcher could not read {file_name} ({error}). It may be locked \
+                     by another process, or the download may have been interrupted."
+                ),
+                entry: None,
+            });
+            return report;
+        }
+    };
+    report.size = bytes.len() as u64;
+    report.sha1 = sha1_hex(&bytes);
+
+    let mut budget = Budget::default();
+    scan_zip(bytes, "", 0, &file_name, &mut budget, &mut report.findings);
+    report.truncated = budget.truncated;
+    report
+}
+
+/// Scan the zip in `bytes`. Entry names are reported behind `prefix` (empty at
+/// the top, `META-INF/jars/lib.jar!/` inside a nested jar) so every finding
+/// says exactly where it was.
+fn scan_zip(
+    bytes: Vec<u8>,
+    prefix: &str,
+    depth: usize,
+    file_name: &str,
+    budget: &mut Budget,
+    findings: &mut Vec<Finding>,
+) {
+    let mut archive = match zip::ZipArchive::new(std::io::Cursor::new(bytes)) {
         Ok(archive) => archive,
         Err(error) => {
+            let nested = prefix.strip_suffix("!/");
+            let name = nested.unwrap_or(file_name);
             findings.push(Finding {
                 severity: Severity::Warning,
                 code: "not_an_archive".to_string(),
                 summary: "Not a readable jar or pack".to_string(),
                 detail: format!(
-                    "Orbit Launcher could not open {file_name} as an archive ({error}). A file \
+                    "Orbit Launcher could not open {name} as an archive ({error}). A file \
                      with a .jar or .zip extension that is not really one is worth \
                      checking: renaming an executable is a common way to get someone \
                      to run it by double-clicking."
                 ),
-                entry: None,
+                entry: nested.map(str::to_string),
             });
-            return Ok(FileReport {
-                file: display_relative(path, relative_to),
-                kind,
-                size,
-                sha1,
-                findings,
-                provenance: Provenance::unchecked(),
-                truncated: false,
-            });
+            return;
         }
     };
 
-    let mut examined_entries = 0usize;
-    let mut examined_bytes = 0u64;
-
     for index in 0..archive.len() {
-        if examined_entries >= MAX_ENTRIES || examined_bytes >= MAX_BYTES {
-            truncated = true;
+        if budget.entries >= MAX_ENTRIES || budget.bytes >= MAX_BYTES {
+            budget.truncated = true;
             break;
         }
 
@@ -493,11 +521,11 @@ pub fn scan_archive(path: &Path, relative_to: &Path) -> Result<FileReport> {
             continue;
         };
 
-        let entry_name = entry.name().to_string();
+        let entry_name = format!("{prefix}{}", entry.name());
         if entry.is_dir() || entry_name.ends_with('/') {
             continue;
         }
-        examined_entries += 1;
+        budget.entries += 1;
 
         let extension = Path::new(&entry_name)
             .extension()
@@ -532,24 +560,56 @@ pub fn scan_archive(path: &Path, relative_to: &Path) -> Result<FileReport> {
             });
         }
 
+        // Archives inside the archive: a payload hidden in a bundled library
+        // is just as live as one at the top level.
+        if matches!(extension.as_str(), "jar" | "zip") {
+            if depth >= MAX_NESTING {
+                budget.truncated = true;
+                continue;
+            }
+            // A zip's directory sits at its end, so a nested archive is only
+            // worth opening when the whole of it fits in what is left.
+            let room = MAX_BYTES.saturating_sub(budget.bytes);
+            let mut nested = Vec::with_capacity(entry.size().min(room) as usize);
+            if entry.by_ref().take(room + 1).read_to_end(&mut nested).is_err() {
+                continue;
+            }
+            budget.bytes += nested.len() as u64;
+            if nested.len() as u64 > room {
+                budget.truncated = true;
+                continue;
+            }
+            drop(entry);
+            scan_zip(
+                nested,
+                &format!("{entry_name}!/"),
+                depth + 1,
+                file_name,
+                budget,
+                findings,
+            );
+            continue;
+        }
+
         let Some(target) = scan_target(&extension) else {
             continue;
         };
 
-        // Read only as much as the entry warrants.
-        let limit = entry.size().min(MAX_ENTRY_BYTES);
-        let mut buffer = Vec::with_capacity(limit as usize);
+        // The size in the entry header is only a capacity hint: it is written
+        // by whoever built the zip, and an entry claiming 0 bytes still
+        // inflates to whatever it holds. Always read up to the cap.
+        let mut buffer = Vec::with_capacity(entry.size().min(MAX_ENTRY_BYTES) as usize);
         if entry
             .by_ref()
-            .take(limit)
+            .take(MAX_ENTRY_BYTES)
             .read_to_end(&mut buffer)
             .is_err()
         {
             continue;
         }
-        examined_bytes += buffer.len() as u64;
+        budget.bytes += buffer.len() as u64;
         if buffer.len() as u64 >= MAX_ENTRY_BYTES {
-            truncated = true;
+            budget.truncated = true;
         }
 
         findings.extend(apply_indicators(
@@ -558,16 +618,6 @@ pub fn scan_archive(path: &Path, relative_to: &Path) -> Result<FileReport> {
             target == Target::Bytecode,
         ));
     }
-
-    Ok(FileReport {
-        file: display_relative(path, relative_to),
-        kind,
-        size,
-        sha1,
-        findings,
-        provenance: Provenance::unchecked(),
-        truncated,
-    })
 }
 
 /// Turn an absolute path into the stable, instance-relative form the UI shows.
@@ -648,6 +698,10 @@ fn is_scannable(path: &Path) -> bool {
 /// legitimately absent from it.
 pub fn apply_provenance(files: &mut [FileReport], known: &HashMap<String, Provenance>) {
     for file in files.iter_mut() {
+        // An unreadable file has no hash, so it was never asked about.
+        if file.sha1.is_empty() {
+            continue;
+        }
         let key = file.sha1.to_uppercase();
         file.provenance = known.get(&key).cloned().unwrap_or(Provenance {
             status: ProvenanceStatus::Unknown,
@@ -729,7 +783,72 @@ mod tests {
     /// the game directory, one level above `mods/`.
     fn scan(path: &Path) -> FileReport {
         let game_dir = path.parent().and_then(|p| p.parent()).unwrap();
-        scan_archive(path, game_dir).unwrap()
+        scan_archive(path, game_dir)
+    }
+
+    /// Zip `entries` in memory, for archives nested inside a fixture.
+    fn zip_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        for (entry_name, bytes) in entries {
+            writer.start_file(*entry_name, options).unwrap();
+            writer.write_all(bytes).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    /// A stealer bundled as a jar-in-jar library is found, and named by the
+    /// path that leads to it.
+    #[test]
+    fn scans_archives_nested_inside_the_jar() {
+        let inner = zip_bytes(&[("evil/St.class", b"\xca\xfe\xba\xbe launcher_accounts.json")]);
+        let middle = zip_bytes(&[("lib/inner.jar", &inner), ("drop.exe", b"MZ")]);
+        let path = archive(
+            "nested.jar",
+            &[
+                ("META-INF/jars/middle.jar", &middle),
+                ("fabric.mod.json", br#"{"id":"x"}"#),
+            ],
+        );
+
+        let report = scan(&path);
+        let entries: Vec<&str> = report
+            .findings
+            .iter()
+            .filter_map(|f| f.entry.as_deref())
+            .collect();
+        assert!(
+            entries.contains(&"META-INF/jars/middle.jar!/lib/inner.jar!/evil/St.class"),
+            "{:?}",
+            report.findings
+        );
+        assert!(entries.contains(&"META-INF/jars/middle.jar!/drop.exe"));
+        assert!(!report.truncated);
+    }
+
+    /// Past the nesting limit the scan says it stopped rather than looking clean.
+    #[test]
+    fn nesting_beyond_the_limit_is_reported_as_truncated() {
+        let mut bytes = zip_bytes(&[("a.class", b"\xca\xfe\xba\xbe hello")]);
+        for _ in 0..=MAX_NESTING {
+            bytes = zip_bytes(&[("inner.jar", &bytes)]);
+        }
+        let path = archive("deep.jar", &[("inner.jar", &bytes)]);
+        assert!(scan(&path).truncated);
+    }
+
+    /// A file that can't be read is reported, not dropped from the results.
+    #[test]
+    fn an_unreadable_file_is_a_finding() {
+        let root = root_for("unreadable");
+        let _ = fs::remove_dir_all(&root);
+        // A directory named like a jar can't be read as a file.
+        let path = root.join("mods").join("locked.jar");
+        fs::create_dir_all(&path).unwrap();
+
+        let report = scan(&path);
+        assert_eq!(codes(&report), ["unreadable"]);
+        assert_eq!(report.file, "mods/locked.jar");
     }
 
     /// Raw, non-archive fixture for the "this .jar is not a jar" case.

@@ -203,6 +203,7 @@ export function mountServers(pane, ctx) {
 
     const addressInput = modal.body.querySelector('[data-address]');
     const problemEl = modal.body.querySelector('[data-problem]');
+    const texturesInput = modal.body.querySelector('[data-textures]');
     const submitBtn = modal.foot.querySelector('[data-submit]');
     const validate = () => {
       const problem = addressProblem(addressInput.value.trim());
@@ -220,7 +221,11 @@ export function mountServers(pane, ctx) {
         // The cached icon is carried through untouched.
         icon: entry?.icon ?? null,
         hidden: modal.body.querySelector('[data-hidden]').checked,
-        acceptTextures: modal.body.querySelector('[data-textures]').checked,
+        // `null` is the game's "ask me": an untouched switch keeps it rather
+        // than turning it into "disabled".
+        acceptTextures: texturesInput.checked === Boolean(entry?.acceptTextures)
+          ? (entry?.acceptTextures ?? null)
+          : texturesInput.checked,
       };
       // The row may have moved or gone since the editor opened.
       const at = entry ? draft.indexOf(entry) : -1;

@@ -109,6 +109,47 @@ impl AppState {
         }
     }
 
+    /// Add the play time of games a previous launcher run started but never saw exit
+    /// (see [`crate::core::launch::RunningGame`]). One still running is checked again every
+    /// 30 seconds until it's gone; the time is only credited then.
+    pub fn adopt_orphaned_games(&self, app: &tauri::AppHandle) {
+        use crate::core::launch;
+        let mut orphans = launch::load_running(&self.paths);
+        if orphans.is_empty() {
+            return;
+        }
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            use tauri::Manager;
+            let state = app.state::<AppState>();
+            loop {
+                let mut still_running = Vec::new();
+                for game in orphans {
+                    if launch::java_is_running(game.pid).await {
+                        still_running.push(game);
+                        continue;
+                    }
+                    let mut store = state.instances.write().await;
+                    if let Ok(instance) = store.get_mut(&game.instance_id) {
+                        let game_dir = crate::core::instance::game_dir(&state.paths, instance);
+                        let secs = launch::orphan_play_secs(&game, &game_dir);
+                        log::info!("adding {secs}s of play time to {} from a game the launcher didn't see exit", game.instance_id);
+                        instance.play_time_secs = instance.play_time_secs.saturating_add(secs);
+                        if let Err(error) = store.persist(&state.paths, &game.instance_id) {
+                            log::warn!("couldn't save play time for {}: {error}", game.instance_id);
+                        }
+                    }
+                    launch::forget_running(&state.paths, &game);
+                }
+                if still_running.is_empty() {
+                    break;
+                }
+                orphans = still_running;
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            }
+        });
+    }
+
     /// A progress sink that forwards snapshots to the frontend.
     pub fn sink(&self, app: &tauri::AppHandle) -> ProgressSink {
         use tauri::Emitter;

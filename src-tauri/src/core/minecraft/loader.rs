@@ -4,13 +4,14 @@
 //!   merge onto the vanilla version at launch time. Fast, no Java required.
 //! * **Forge / NeoForge** ship an installer jar which must be executed with
 //!   Java. The installer writes a new version profile plus the loader libraries
-//!   into the game directory; we then import that profile.
+//!   into the shared meta folder, which is laid out like `.minecraft`.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use super::manifest::VersionJson;
+use crate::api::modrinth::urlencode;
 use crate::core::download::{download_one, get_json, DownloadSpec, ProgressSink};
 use crate::core::instance::LoaderKind;
 use crate::core::paths::{read_json, write_json, AppPaths};
@@ -53,10 +54,11 @@ pub async fn list_loader_versions(
     kind: LoaderKind,
     game_version: &str,
 ) -> Result<Vec<LoaderVersion>> {
+    validate_version("Minecraft version", game_version)?;
     match kind {
         LoaderKind::Vanilla => Ok(vec![]),
         LoaderKind::Fabric => {
-            let url = format!("{FABRIC_META}/versions/loader/{game_version}");
+            let url = format!("{FABRIC_META}/versions/loader/{}", urlencode(game_version));
             let raw: Vec<FabricLoaderForGame> = get_json(http, &url).await?;
             Ok(raw
                 .into_iter()
@@ -68,7 +70,7 @@ pub async fn list_loader_versions(
                 .collect())
         }
         LoaderKind::Quilt => {
-            let url = format!("{QUILT_META}/versions/loader/{game_version}");
+            let url = format!("{QUILT_META}/versions/loader/{}", urlencode(game_version));
             let raw: Vec<FabricLoaderForGame> = get_json(http, &url).await?;
             Ok(raw
                 .into_iter()
@@ -115,6 +117,9 @@ pub async fn list_loader_versions(
             Ok(out)
         }
         LoaderKind::NeoForge => {
+            let Some(prefix) = neoforge_prefix(game_version) else {
+                return Ok(vec![]);
+            };
             let xml = http
                 .get(format!("{NEOFORGE_MAVEN}/net/neoforged/neoforge/maven-metadata.xml"))
                 .send()
@@ -122,7 +127,6 @@ pub async fn list_loader_versions(
                 .text()
                 .await
                 .unwrap_or_default();
-            let prefix = neoforge_prefix(game_version);
             Ok(extract_xml_tags(&xml, "version")
                 .into_iter()
                 .filter(|v| v.starts_with(&prefix))
@@ -136,16 +140,44 @@ pub async fn list_loader_versions(
     }
 }
 
-/// NeoForge uses a game-version-derived scheme (1.20.4 → `20.4.`), except for
-/// 1.20.1 where it still shipped as `net.neoforged:forge`.
-fn neoforge_prefix(game_version: &str) -> String {
-    match game_version {
-        "1.20.1" => "47.".to_string(),
-        other => match other.strip_prefix("1.") {
-            Some(rest) => format!("{rest}."),
-            None => other.to_string(),
-        },
+/// The `net.neoforged:neoforge` version prefix for a game version: 1.20.4 →
+/// `20.4.`, 1.21 → `21.0.`, 1.21.1 → `21.1.`, and for year-based releases
+/// 26.1 → `26.1.0.`, 26.1.2 → `26.1.2.`.
+///
+/// `None` when that artifact has no builds for the version: snapshots, and
+/// 1.20.1 and older (NeoForge's 1.20.1 builds were `net.neoforged:forge`
+/// re-releases of Forge 47, which we don't offer).
+fn neoforge_prefix(game_version: &str) -> Option<String> {
+    let numeric = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+    let parts: Vec<&str> = game_version.split('.').collect();
+    if !parts.iter().all(|p| numeric(p)) {
+        return None;
     }
+    match parts.as_slice() {
+        ["1", major, rest @ ..] if rest.len() <= 1 => {
+            let minor = rest.first().copied().unwrap_or("0");
+            let (major_n, minor_n): (u32, u32) = (major.parse().ok()?, minor.parse().ok()?);
+            if major_n < 20 || (major_n == 20 && minor_n < 2) {
+                return None;
+            }
+            Some(format!("{major}.{minor}."))
+        }
+        [year, drop, rest @ ..] if *year != "1" && rest.len() <= 1 => {
+            let hotfix = rest.first().copied().unwrap_or("0");
+            Some(format!("{year}.{drop}.{hotfix}."))
+        }
+        _ => None,
+    }
+}
+
+/// Loader and game versions end up in download URLs and in
+/// `meta/versions/<id>`, so only accept the characters real versions use.
+pub fn validate_version(label: &str, value: &str) -> Result<()> {
+    let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-');
+    if value.is_empty() || value.contains("..") || !value.chars().all(allowed) {
+        return Err(LauncherError::InvalidData(format!("{label} `{value}` isn't a valid version.")));
+    }
+    Ok(())
 }
 
 /// Tiny XML tag extractor so we don't pull in a full XML parser for one call.
@@ -198,17 +230,20 @@ pub fn is_installed(paths: &AppPaths, id: &str) -> bool {
 
 /// Download (and for Forge-family, execute) a loader profile.
 ///
-/// Returns the profile id. Idempotent: repeated calls are cheap.
+/// Returns the profile id. Idempotent: repeated calls are cheap. Everything is
+/// installed into the shared meta folder; `_game_dir` is no longer written to.
 pub async fn install_loader(
     http: &reqwest::Client,
     paths: &AppPaths,
-    game_dir: &Path,
+    _game_dir: &Path,
     kind: LoaderKind,
     game_version: &str,
     loader_version: &str,
     java: &Path,
     sink: ProgressSink,
 ) -> Result<String> {
+    validate_version("Minecraft version", game_version)?;
+    validate_version("Loader version", loader_version)?;
     let id = profile_id(kind, game_version, loader_version);
     if is_installed(paths, &id) {
         return Ok(id);
@@ -222,7 +257,11 @@ pub async fn install_loader(
             } else {
                 QUILT_META
             };
-            let url = format!("{base}/versions/loader/{game_version}/{loader_version}/profile/json");
+            let url = format!(
+                "{base}/versions/loader/{}/{}/profile/json",
+                urlencode(game_version),
+                urlencode(loader_version)
+            );
             let profile: VersionJson = get_json(http, &url).await?;
             // The meta server supplies its own id; keep ours so caching is stable.
             let mut profile = profile;
@@ -234,7 +273,6 @@ pub async fn install_loader(
             run_installer(
                 http,
                 paths,
-                game_dir,
                 kind,
                 game_version,
                 loader_version,
@@ -252,7 +290,6 @@ pub async fn install_loader(
 async fn run_installer(
     http: &reqwest::Client,
     paths: &AppPaths,
-    game_dir: &Path,
     kind: LoaderKind,
     game_version: &str,
     loader_version: &str,
@@ -262,17 +299,30 @@ async fn run_installer(
     let (url, file_name) = match kind {
         LoaderKind::Forge => {
             let maven = forge_maven_version(http, game_version, loader_version).await;
+            validate_version("Forge version", &maven)?;
+            let encoded = urlencode(&maven);
             (
-                format!("{FORGE_MAVEN}/net/minecraftforge/forge/{maven}/forge-{maven}-installer.jar"),
+                format!("{FORGE_MAVEN}/net/minecraftforge/forge/{encoded}/forge-{encoded}-installer.jar"),
                 format!("forge-{maven}-installer.jar"),
             )
         }
-        LoaderKind::NeoForge => (
-            format!(
-                "{NEOFORGE_MAVEN}/net/neoforged/neoforge/{loader_version}/neoforge-{loader_version}-installer.jar"
-            ),
-            format!("neoforge-{loader_version}-installer.jar"),
-        ),
+        LoaderKind::NeoForge => {
+            match neoforge_prefix(game_version) {
+                Some(prefix) if loader_version.starts_with(&prefix) => {}
+                _ => {
+                    return Err(LauncherError::Unsupported(format!(
+                        "NeoForge {loader_version} for Minecraft {game_version}"
+                    )))
+                }
+            }
+            let encoded = urlencode(loader_version);
+            (
+                format!(
+                    "{NEOFORGE_MAVEN}/net/neoforged/neoforge/{encoded}/neoforge-{encoded}-installer.jar"
+                ),
+                format!("neoforge-{loader_version}-installer.jar"),
+            )
+        }
         _ => unreachable!(),
     };
 
@@ -300,7 +350,18 @@ async fn run_installer(
         }
     }
 
-    std::fs::create_dir_all(game_dir)?;
+    // The installer treats its target like a `.minecraft` folder: it writes
+    // `versions/<id>/<id>.json`, the vanilla jar and every library (including
+    // ones it generates, which can't be downloaded later). Our meta folder has
+    // that exact layout, so install straight into it and the launch classpath,
+    // built from `libraries_dir()`, finds everything. The installer refuses to
+    // run without a launcher profile file there.
+    let root = paths.meta_dir();
+    let launcher_profiles = root.join("launcher_profiles.json");
+    if !launcher_profiles.exists() {
+        write_json(&launcher_profiles, &serde_json::json!({ "profiles": {} }))?;
+    }
+
     sink(crate::core::download::Progress::new(
         "install",
         format!("Running the {} installer…", kind.as_str()),
@@ -312,12 +373,16 @@ async fn run_installer(
         .arg("-jar")
         .arg(&installer)
         .arg("--installClient")
-        .arg(game_dir)
+        .arg(&root)
         .output()
         .await
         .map_err(|e| LauncherError::msg(format!("Couldn't run the installer: {e}")))?;
 
+    // The installer writes the profile before generating libraries; drop it
+    // on failure so a half-finished install isn't treated as installed.
+    let installed = profile_file(paths, &id);
     if !output.status.success() {
+        let _ = std::fs::remove_file(&installed);
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
         return Err(LauncherError::Launch(format!(
@@ -328,18 +393,22 @@ async fn run_installer(
         )));
     }
 
-    // The installer writes `versions/<id>/<id>.json` into the game dir; import
-    // it into our metadata folder so launches are self-contained.
-    let installed: PathBuf = game_dir.join("versions").join(&id).join(format!("{id}.json"));
+    // Re-save the profile in our own shape (and make sure it parses).
     if !installed.exists() {
         return Err(LauncherError::msg(format!(
             "The installer finished but produced no profile at {}",
             installed.display()
         )));
     }
-    let profile: VersionJson = read_json(&installed)?
-        .ok_or_else(|| LauncherError::msg("The installer profile was empty."))?;
-    write_json(&profile_file(paths, &id), &profile)?;
+    let profile: VersionJson = match read_json(&installed) {
+        Ok(Some(profile)) => profile,
+        result => {
+            let _ = std::fs::remove_file(&installed);
+            result?;
+            return Err(LauncherError::msg("The installer profile was empty."));
+        }
+    };
+    write_json(&installed, &profile)?;
     Ok(())
 }
 
@@ -428,6 +497,34 @@ mod forge_tests {
         assert_eq!(pick_forge_version(&versions, "1.8.9-11.15.1.2318"), "1.8.9-11.15.1.2318-1.8.9");
         assert_eq!(pick_forge_version(&versions, "1.12.2-14.23.5.2860"), "1.12.2-14.23.5.2860");
         assert_eq!(pick_forge_version(&versions, "1.20.1-47.2.0"), "1.20.1-47.2.0");
+    }
+
+    #[test]
+    fn neoforge_prefixes_match_only_their_game_version() {
+        assert_eq!(neoforge_prefix("1.20.4").as_deref(), Some("20.4."));
+        assert_eq!(neoforge_prefix("1.21").as_deref(), Some("21.0."));
+        assert_eq!(neoforge_prefix("1.21.1").as_deref(), Some("21.1."));
+        assert_eq!(neoforge_prefix("1.21.10").as_deref(), Some("21.10."));
+        assert_eq!(neoforge_prefix("26.1").as_deref(), Some("26.1.0."));
+        assert_eq!(neoforge_prefix("26.1.2").as_deref(), Some("26.1.2."));
+        assert_eq!(neoforge_prefix("1.20.1"), None);
+        assert_eq!(neoforge_prefix("1.19.2"), None);
+        assert_eq!(neoforge_prefix("25w14craftmine"), None);
+
+        let prefix = neoforge_prefix("1.21").unwrap();
+        assert!("21.0.167".starts_with(&prefix));
+        assert!(!"21.1.77".starts_with(&prefix));
+        assert!(!"21.10.5".starts_with(&prefix));
+    }
+
+    #[test]
+    fn rejects_unsafe_versions() {
+        for ok in ["1.20.1", "47.2.0", "0.15.0+build.1", "21.0.0-beta", "1.8.9-11.15.1.2318-1.8.9"] {
+            assert!(validate_version("v", ok).is_ok(), "{ok}");
+        }
+        for bad in ["", "..", "1.20/../../x", "a\\b", "1.20?x=1", "1 2", "a..b"] {
+            assert!(validate_version("v", bad).is_err(), "{bad}");
+        }
     }
 
     /// Needs the real 1.8.9 installer: set FORGE_LEGACY_INSTALLER to its path.

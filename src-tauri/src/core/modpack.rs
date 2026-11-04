@@ -157,55 +157,10 @@ pub async fn install(
                 continue;
             }
         }
-        let Some(url) = file.downloads.first() else {
-            continue;
-        };
-        // Basic filename guard: the pack must reference files inside `mods/`.
-        // The path is taken from the mrpack index, not user input, but treat it
-        // defensively and don't trust arbitrary paths.
-        let path_str = &file.path;
-        if path_str.contains("..") || path_str.contains('\\') {
-            continue;
+        specs.push(download_spec(file, game_dir)?);
+        if let Some(sha1) = file.hashes.get("sha1").filter(|h| !h.is_empty()) {
+            tracked.push((file.path.clone(), sha1.clone()));
         }
-        if path_str.starts_with('/') || path_str.starts_with('\\') {
-            continue;
-        }
-        if let Some(c) = path_str.chars().next() {
-            if c.is_ascii_alphabetic() && path_str.chars().nth(1) == Some(':') {
-                continue;
-            }
-        }
-        let dest = game_dir.join(path_str.replace('/', std::path::MAIN_SEPARATOR_STR));
-        // Containment check: ensure dest stays inside game_dir.
-        if let Ok(canon_dest) = dest.canonicalize() {
-            if let Ok(canon_root) = game_dir.canonicalize() {
-                if !canon_dest.starts_with(&canon_root) {
-                    continue;
-                }
-            }
-        } else {
-            let mut rooted = true;
-            let mut check = dest.as_path();
-            while let Some(parent) = check.parent() {
-                if parent.as_os_str().is_empty() {
-                    rooted = false;
-                    break;
-                }
-                if parent == game_dir {
-                    break;
-                }
-                check = parent;
-            }
-            if !rooted {
-                continue;
-            }
-        }
-        let mut spec = DownloadSpec::new(url.clone(), dest).with_size(file.file_size);
-        if let Some(sha1) = file.hashes.get("sha1") {
-            spec = spec.with_sha1(sha1.clone());
-            tracked.push((path_str.clone(), sha1.clone()));
-        }
-        specs.push(spec);
     }
 
     if !specs.is_empty() {
@@ -225,6 +180,76 @@ pub async fn install(
     // update checks and the content list work per mod rather than per pack.
     let client = ModrinthClient::new(http.clone(), modrinth_base.to_string());
     Ok(resolve_projects(&client, &index, &tracked).await)
+}
+
+/// Hosts a `.mrpack` may download from, per Modrinth's format definition.
+const ALLOWED_DOWNLOAD_HOSTS: [&str; 4] = [
+    "cdn.modrinth.com",
+    "github.com",
+    "raw.githubusercontent.com",
+    "gitlab.com",
+];
+
+/// True for an `https` URL on one of [`ALLOWED_DOWNLOAD_HOSTS`].
+fn allowed_download_url(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|parsed| {
+        parsed.scheme() == "https"
+            && parsed
+                .host_str()
+                .is_some_and(|host| ALLOWED_DOWNLOAD_HOSTS.contains(&host))
+    })
+}
+
+/// Validate one index entry and turn it into a download.
+///
+/// The index is untrusted input: a file without a checksum, outside the game
+/// directory, or hosted anywhere but Modrinth's allowlist fails the install
+/// rather than being fetched (or silently skipped).
+fn download_spec(file: &MrpackFile, game_dir: &Path) -> Result<DownloadSpec> {
+    let path = &file.path;
+    let hash = |algo: &str| file.hashes.get(algo).filter(|h| !h.is_empty()).cloned();
+    let (sha1, sha512) = (hash("sha1"), hash("sha512"));
+    if sha1.is_none() && sha512.is_none() {
+        return Err(LauncherError::msg(format!(
+            "The modpack lists '{path}' without a checksum, so it can't be verified."
+        )));
+    }
+
+    if !super::path_security::is_safe_archive_path(path) {
+        return Err(LauncherError::msg(format!(
+            "The modpack tries to write to an unsafe path: '{path}'."
+        )));
+    }
+    let dest = game_dir.join(path.replace('/', std::path::MAIN_SEPARATOR_STR));
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            LauncherError::msg(format!("Couldn't create {}: {e}", parent.display()))
+        })?;
+    }
+    if !super::path_security::destination_is_within(game_dir, &dest) {
+        return Err(LauncherError::msg(format!(
+            "The modpack file '{path}' resolves outside the instance."
+        )));
+    }
+
+    let mut urls = file.downloads.iter().filter(|url| allowed_download_url(url)).cloned();
+    let Some(url) = urls.next() else {
+        return Err(LauncherError::msg(format!(
+            "The modpack file '{path}' has no download from an allowed host ({}).",
+            ALLOWED_DOWNLOAD_HOSTS.join(", ")
+        )));
+    };
+
+    let mut spec = DownloadSpec::new(url, dest)
+        .with_size(file.file_size)
+        .with_fallback_urls(urls.collect());
+    if let Some(sha1) = sha1 {
+        spec = spec.with_sha1(sha1);
+    }
+    if let Some(sha512) = sha512 {
+        spec = spec.with_sha512(sha512);
+    }
+    Ok(spec)
 }
 
 /// Ask Modrinth which projects a pack's downloaded files belong to.
@@ -420,33 +445,18 @@ pub fn export(
         }
     }
 
-    let index = MrpackIndex {
-        format_version: 1,
-        game: "minecraft".into(),
-        version_id: "1.0.0".into(),
-        name: name.to_string(),
-        summary,
-        files: vec![],
-        dependencies,
-    };
+    // ---- files and overrides ----------------------------------------------
+    // Content installed from Modrinth goes into the index so it's
+    // re-downloaded from its source; everything else in the game dir
+    // (CurseForge files, hand-added mods, configs) becomes an override.
+    let downloads = modrinth_downloads(projects);
+    let mut files: Vec<MrpackFile> = vec![];
 
-    writer.start_file(INDEX_FILE, options)?;
-    writer.write_all(serde_json::to_string_pretty(&index)?.as_bytes())?;
-
-    // ---- overrides --------------------------------------------------------
-    // Anything in the game dir that isn't tracked launcher metadata becomes an
-    // override. Modrinth-installed content is represented in the index instead.
-    let tracked: std::collections::HashSet<String> = projects
-        .iter()
-        .flat_map(|p| p.files.iter().cloned())
-        .collect();
-
-    let skip_dirs = ["versions", "logs", "crash-reports", "screenshots", "runtime", "natives"];
     for entry in walkdir::WalkDir::new(game_dir)
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
-            !skip_dirs.contains(&name.as_ref())
+            !EXPORT_SKIP_DIRS.contains(&name.as_ref())
         })
     {
         let entry = match entry {
@@ -460,19 +470,114 @@ pub fn export(
             Ok(relative) => relative.to_string_lossy().replace('\\', "/"),
             Err(_) => continue,
         };
-        if tracked.contains(&relative) {
+
+        let mut source = std::fs::File::open(entry.path())?;
+        let mut buffer = vec![];
+        source.read_to_end(&mut buffer)?;
+
+        if let Some(url) = downloads.get(&relative) {
+            files.push(index_file(relative, url.clone(), &buffer));
             continue;
         }
 
         writer.start_file(format!("overrides/{relative}"), options)?;
-        let mut source = std::fs::File::open(entry.path())?;
-        let mut buffer = vec![];
-        source.read_to_end(&mut buffer)?;
         writer.write_all(&buffer)?;
     }
 
+    let index = MrpackIndex {
+        format_version: 1,
+        game: "minecraft".into(),
+        version_id: "1.0.0".into(),
+        name: name.to_string(),
+        summary,
+        files,
+        dependencies,
+    };
+
+    writer.start_file(INDEX_FILE, options)?;
+    writer.write_all(serde_json::to_string_pretty(&index)?.as_bytes())?;
+
     writer.finish()?;
     Ok(())
+}
+
+/// Top-level game-dir folders that never belong in an exported pack: launcher
+/// and game output, plus world backups (`<game dir>/backups`).
+const EXPORT_SKIP_DIRS: [&str; 7] = [
+    "versions",
+    "logs",
+    "crash-reports",
+    "screenshots",
+    "runtime",
+    "natives",
+    "backups",
+];
+
+/// Game-dir relative path → Modrinth CDN URL for every tracked file that was
+/// installed from Modrinth and can be re-downloaded from it.
+///
+/// Files tracked by other sources (CurseForge, Orbit Client, the pack record
+/// of a local import) aren't on Modrinth's CDN and stay out of the map, so
+/// they're exported as overrides. A record holding several files only knows
+/// one version id, so its files can't all be addressed and stay overrides too.
+fn modrinth_downloads(projects: &[InstalledProject]) -> HashMap<String, String> {
+    let is_modrinth_id = |id: &str| !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric());
+
+    let mut out = HashMap::new();
+    for project in projects {
+        if project.project_type == "modpack"
+            || !is_modrinth_id(&project.project_id)
+            || !is_modrinth_id(&project.version_id)
+        {
+            continue;
+        }
+        let [file] = project.files.as_slice() else {
+            continue;
+        };
+        // Pack installs record game-dir paths (`mods/a.jar`); single installs
+        // record bare file names inside the project type's folder.
+        let relative = if file.contains('/') {
+            if !super::path_security::is_safe_archive_path(file) {
+                continue;
+            }
+            file.clone()
+        } else {
+            if !super::path_security::is_safe_filename(file) {
+                continue;
+            }
+            let folder = super::instance::content_dir(Path::new(""), &project.project_type);
+            format!("{}/{file}", folder.to_string_lossy())
+        };
+        let Some(filename) = relative.rsplit('/').next() else {
+            continue;
+        };
+        let url = format!(
+            "https://cdn.modrinth.com/data/{}/versions/{}/{}",
+            project.project_id,
+            project.version_id,
+            crate::api::modrinth::urlencode(filename)
+        );
+        out.insert(relative, url);
+    }
+    out
+}
+
+/// An index entry for a file being exported, hashed from its contents.
+fn index_file(path: String, url: String, contents: &[u8]) -> MrpackFile {
+    use sha1::{Digest, Sha1};
+    use sha2::Sha512;
+
+    let hashes = HashMap::from([
+        ("sha1".to_string(), super::download::to_hex(&Sha1::digest(contents))),
+        ("sha512".to_string(), super::download::to_hex(&Sha512::digest(contents))),
+    ]);
+    MrpackFile {
+        path,
+        hashes,
+        env: None,
+        downloads: vec![url],
+        file_size: contents.len() as u64,
+    }
 }
 
 /// Best-effort guess of the loader from a Modrinth pack dependency map.
@@ -584,6 +689,143 @@ mod tests {
         assert_eq!(records[0].title, "1.0"); // from the version, not the project
         assert_eq!(records[0].project_type, "mod");
         assert_eq!(records[0].icon_url, None);
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("orbit-mrpack-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn mrpack_file(path: &str, hashes: &[(&str, &str)], downloads: &[&str]) -> MrpackFile {
+        MrpackFile {
+            path: path.into(),
+            hashes: hashes.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            env: None,
+            downloads: downloads.iter().map(|u| u.to_string()).collect(),
+            file_size: 1,
+        }
+    }
+
+    #[test]
+    fn download_spec_validates_untrusted_index_entries() {
+        let game = temp_dir("spec");
+        let cdn = "https://cdn.modrinth.com/data/x/versions/y/a.jar";
+
+        // No checksum, unsafe paths and foreign or plain-http hosts all fail.
+        assert!(download_spec(&mrpack_file("mods/a.jar", &[], &[cdn]), &game).is_err());
+        assert!(download_spec(&mrpack_file("mods/a.jar", &[("sha1", "")], &[cdn]), &game).is_err());
+        for path in ["../a.jar", "mods/../../a.jar", "C:/a.jar", "mods/a.jar:ads", ""] {
+            assert!(download_spec(&mrpack_file(path, &[("sha1", "aa")], &[cdn]), &game).is_err(), "{path}");
+        }
+        for url in ["https://evil.example/a.jar", "http://cdn.modrinth.com/a.jar"] {
+            assert!(download_spec(&mrpack_file("mods/a.jar", &[("sha1", "aa")], &[url]), &game).is_err(), "{url}");
+        }
+
+        // Allowed URLs are kept in order; disallowed ones are dropped.
+        let spec = download_spec(
+            &mrpack_file(
+                "mods/foo..bar.jar",
+                &[("sha512", "bb")],
+                &["https://evil.example/a.jar", cdn, "https://github.com/o/r/a.jar"],
+            ),
+            &game,
+        )
+        .unwrap();
+        assert_eq!(spec.url, cdn);
+        assert_eq!(spec.fallback_urls, vec!["https://github.com/o/r/a.jar"]);
+        assert_eq!(spec.sha512.as_deref(), Some("bb"));
+        assert_eq!(spec.sha1, None);
+        assert!(spec.dest.ends_with("foo..bar.jar"));
+        let _ = std::fs::remove_dir_all(&game);
+    }
+
+    fn tracked(project_id: &str, version_id: &str, project_type: &str, files: &[&str]) -> InstalledProject {
+        InstalledProject {
+            project_id: project_id.into(),
+            version_id: version_id.into(),
+            title: project_id.into(),
+            icon_url: None,
+            project_type: project_type.into(),
+            files: files.iter().map(|f| f.to_string()).collect(),
+            installed_at: None,
+        }
+    }
+
+    #[test]
+    fn only_modrinth_sourced_files_get_download_urls() {
+        let downloads = modrinth_downloads(&[
+            tracked("AANobbMI", "NM9w06Kr", "mod", &["sodium 1.jar"]),
+            tracked("P7dR8mSH", "abc12345", "resourcepack", &["resourcepacks/pack.zip"]),
+            tracked("cf:123", "cf:123:456", "mod", &["cf.jar"]),
+            tracked("orbit-client", "v1.0.0", "mod", &["orbit-client-1.jar"]),
+            tracked("u76hn1pF", "aaaaaaaa", "modpack", &["mods/packed.jar"]),
+            tracked("Abcdefgh", "Bcdefghi", "mod", &["two.jar", "three.jar"]),
+        ]);
+
+        assert_eq!(downloads.len(), 2, "{downloads:?}");
+        assert_eq!(
+            downloads["mods/sodium 1.jar"],
+            "https://cdn.modrinth.com/data/AANobbMI/versions/NM9w06Kr/sodium%201.jar"
+        );
+        assert_eq!(
+            downloads["resourcepacks/pack.zip"],
+            "https://cdn.modrinth.com/data/P7dR8mSH/versions/abc12345/pack.zip"
+        );
+    }
+
+    #[test]
+    fn export_indexes_modrinth_files_and_skips_backups() {
+        let root = temp_dir("export");
+        let game = root.join("game");
+        for (path, contents) in [
+            ("mods/sodium.jar", "sodium"),
+            ("mods/cf.jar", "cf"),
+            ("config/a.toml", "x"),
+            ("backups/world.zip", "backup"),
+            ("logs/latest.log", "log"),
+        ] {
+            let file = game.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, contents).unwrap();
+        }
+        let target = root.join("out.mrpack");
+        export(
+            &target,
+            "Pack",
+            None,
+            "1.21.1",
+            LoaderKind::Fabric,
+            Some("0.16.9"),
+            &game,
+            &[
+                tracked("AANobbMI", "NM9w06Kr", "mod", &["sodium.jar"]),
+                tracked("cf:1", "cf:1:2", "mod", &["cf.jar"]),
+            ],
+        )
+        .unwrap();
+
+        let index = read_index(&target).unwrap();
+        assert_eq!(index.files.len(), 1);
+        let file = &index.files[0];
+        assert_eq!(file.path, "mods/sodium.jar");
+        assert_eq!(file.file_size, 6);
+        assert_eq!(file.hashes["sha1"].len(), 40);
+        assert_eq!(file.hashes["sha512"].len(), 128);
+        assert_eq!(
+            file.downloads,
+            vec!["https://cdn.modrinth.com/data/AANobbMI/versions/NM9w06Kr/sodium.jar"]
+        );
+
+        let archive = zip::ZipArchive::new(std::fs::File::open(&target).unwrap()).unwrap();
+        let mut names: Vec<&str> = archive.file_names().collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![INDEX_FILE, "overrides/config/a.toml", "overrides/mods/cf.jar"]
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

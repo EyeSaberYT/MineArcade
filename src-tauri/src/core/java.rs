@@ -179,13 +179,28 @@ fn parse_vendor(text: &str) -> String {
     }
 }
 
+/// The `java` executable of a Mojang runtime installed in `component_dir`. The macOS
+/// runtimes keep it inside an app bundle (`jre.bundle/Contents/Home/bin/java`).
+fn managed_java(component_dir: &Path) -> PathBuf {
+    let bin = component_dir.join("bin").join(java_binary_name());
+    #[cfg(target_os = "macos")]
+    if !bin.exists() {
+        return component_dir
+            .join("jre.bundle")
+            .join("Contents")
+            .join("Home")
+            .join("bin")
+            .join(java_binary_name());
+    }
+    bin
+}
+
 /// Candidate `java` executables that ship with a managed runtime.
 fn managed_candidates(paths: &AppPaths) -> Vec<(PathBuf, &'static str)> {
     let mut out = vec![];
     if let Ok(entries) = std::fs::read_dir(paths.java_dir()) {
         for entry in entries.flatten() {
-            let bin = entry.path().join("bin").join(java_binary_name());
-            out.push((bin, "managed"));
+            out.push((managed_java(&entry.path()), "managed"));
         }
     }
     out
@@ -297,7 +312,12 @@ pub async fn detect(
     found.sort_by(|a, b| a.path.cmp(&b.path));
     found.dedup_by(|a, b| a.path == b.path);
 
-    // Prefer an exact-or-newer match, then the lowest version that satisfies.
+    // A Java the player chose wins whenever it's new enough.
+    if let Some(chosen) = found.iter().find(|r| r.source == "explicit" && r.major >= required) {
+        return Some(chosen.clone());
+    }
+
+    // Otherwise the lowest version that satisfies.
     let mut matching: Vec<JavaRuntime> = found.iter().filter(|r| r.major >= required).cloned().collect();
     matching.sort_by_key(|r| r.major);
     if let Some(best) = matching.into_iter().next() {
@@ -363,10 +383,10 @@ struct RuntimeFile {
     file_type: String,
     #[serde(default)]
     downloads: Option<RuntimeDownloads>,
-    /// Present in Mojang's manifest; we extract every file regardless.
+    /// Gets the executable bit on unix.
     #[serde(default)]
-    #[allow(dead_code)]
     executable: bool,
+    /// Where a `link` entry points, relative to its own folder.
     #[serde(default)]
     target: Option<String>,
 }
@@ -438,6 +458,8 @@ pub async fn install(
     let dest_root = paths.java_dir().join(component);
 
     let mut specs = vec![];
+    let mut executables = vec![];
+    let mut links = vec![];
     for (relative, file) in &files.files {
         let target = dest_root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
         match file.file_type.as_str() {
@@ -451,15 +473,21 @@ pub async fn install(
             }
             "file" => {
                 if let Some(raw) = file.downloads.as_ref().and_then(|d| d.raw.as_ref()) {
-                    // Skip the `target` indirection (used for symlinks); we
-                    // simply materialise a real file instead.
-                    let _ = &file.target;
+                    if file.executable {
+                        executables.push(target.clone());
+                    }
                     specs.push(
                         DownloadSpec::new(raw.url.clone(), &target)
                             .with_sha1(raw.sha1.clone())
                             .with_size(raw.size)
                             .with_label(relative.clone()),
                     );
+                }
+            }
+            // Symlinks: the macOS runtimes need them (the bundle's `Contents/Home` layout).
+            "link" => {
+                if let Some(link_target) = file.target.as_ref().filter(|t| !t.starts_with('/')) {
+                    links.push((target.clone(), link_target.clone()));
                 }
             }
             _ => {}
@@ -476,18 +504,37 @@ pub async fn install(
     .await
     .map_err(|e| LauncherError::msg(format!("While installing {component}: {e}")))?;
 
-    // Ensure the launcher binary is executable on unix.
-    let bin = dest_root.join("bin").join(java_binary_name());
+    // Downloads come out as plain files: restore what the manifest says on unix
+    // (java itself, jspawnhelper and friends must be executable).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for path in &executables {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).map_err(|e| {
+                LauncherError::msg(format!("Couldn't make {} executable: {e}", path.display()))
+            })?;
+        }
+        for (link, link_target) in &links {
+            if let Some(parent) = link.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            if std::fs::symlink_metadata(link).is_ok() {
+                std::fs::remove_file(link)?;
+            }
+            std::os::unix::fs::symlink(link_target, link).map_err(|e| {
+                LauncherError::msg(format!("Couldn't create the link {}: {e}", link.display()))
+            })?;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (&executables, &links);
+
+    let bin = managed_java(&dest_root);
     if !bin.exists() {
         return Err(LauncherError::msg(format!(
             "Java was installed but {} is missing.",
             bin.display()
         )));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755));
     }
 
     sink(Progress {

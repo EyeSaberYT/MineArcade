@@ -196,8 +196,11 @@ pub async fn active_account(state: &AppState) -> Result<Account> {
         }
     };
     {
+        // Signed out while the refresh was on the network: keep it signed out.
         let mut store = state.accounts.write().await;
-        store.upsert(refreshed.clone());
+        if !store.update(refreshed.clone()) {
+            return Err(LauncherError::Auth("That account was signed out. Sign in again.".into()));
+        }
         store.save(&state.paths)?;
     }
     log::info!("token for {} renewed", refreshed.username);

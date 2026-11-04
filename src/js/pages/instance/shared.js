@@ -9,7 +9,7 @@ export const plural = (count, word, many = `${word}s`) => `${count} ${count === 
 export const isRunning = (id) => store.state.running.has(id);
 export const isLaunching = (id) => store.state.launching.has(id);
 
-/** Open a folder in the OS file manager, complaining if it isn't there. */
+/** Open a folder (or show a file in its folder) in the OS file manager, complaining if it isn't there. */
 export async function reveal(path) {
   if (!path) return;
   try {

@@ -65,7 +65,10 @@ function mountTopBar() {
   const render = () => {
     const running = [...store.state.running];
     const first = running.length ? store.state.instances.find((i) => i.id === running[0]) : null;
-    const games = [...store.state.runningCounts.values()].reduce((sum, n) => sum + n, 0);
+    // Stop and logs act on the first instance (all of its copies), so the chip counts only those;
+    // other running instances get their own link to the library.
+    const copies = running.length ? store.state.runningCounts.get(running[0]) ?? 1 : 0;
+    const others = running.length - 1;
     setHtml(
       statusEl,
       html`
@@ -75,9 +78,10 @@ function mountTopBar() {
           ? html`<span class="chip is-live">
               <span class="chip-dot"></span>
               <a href="#/instance/${encodeURIComponent(running[0])}" data-tip="View instance">${first?.name ?? 'Minecraft'}</a>
-              ${games > 1 && html`<span class="faint">+${games - 1}</span>`}
-              <button class="chip-btn danger" data-stop-running data-tip="Stop game" aria-label="Stop game">${icon('stop-circle', 'icon-sm')}</button>
+              ${copies > 1 && html`<span class="faint" data-tip="Copies of this instance running">×${copies}</span>`}
+              <button class="chip-btn danger" data-stop-running data-tip="${copies > 1 ? 'Stop all copies' : 'Stop game'}" aria-label="Stop game">${icon('stop-circle', 'icon-sm')}</button>
               <button class="chip-btn" data-logs data-tip="View logs" aria-label="View logs">${icon('terminal', 'icon-sm')}</button>
+              ${others > 0 && html`<a class="faint" href="#/library" data-tip="Other instances running">+${others}</a>`}
             </span>`
           : html`<span class="chip">STATUS <b>Idle</b></span>`}`,
     );

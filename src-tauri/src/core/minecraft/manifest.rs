@@ -235,14 +235,18 @@ pub fn current_os_name() -> &'static str {
 }
 
 pub fn current_arch() -> &'static str {
-    if cfg!(target_arch = "x86_64") {
-        "x86_64"
-    } else if cfg!(target_arch = "aarch64") {
-        "aarch64"
-    } else if cfg!(target_arch = "x86") {
-        "x86"
-    } else {
-        "unknown"
+    std::env::consts::ARCH
+}
+
+/// Does a rule's `os.arch` name the architecture `current` (a Rust
+/// `std::env::consts::ARCH`)? Mojang matches it against Java's `os.arch`, where
+/// `x86` is 32-bit only and 64-bit Intel reports `amd64`.
+fn arch_matches(rule_arch: &str, current: &str) -> bool {
+    match rule_arch {
+        "x86" => current == "x86",
+        "x86_64" | "amd64" => current == "x86_64",
+        "arm64" | "aarch64" => current == "aarch64",
+        other => other == current,
     }
 }
 
@@ -271,8 +275,7 @@ fn rule_matches(rule: &Rule, features: &Features) -> bool {
             }
         }
         if let Some(arch) = &os.arch {
-            // Mojang uses `x86` for 32-bit; be permissive for unknown arches.
-            if arch != "x86" && arch != current_arch() {
+            if !arch_matches(arch, current_arch()) {
                 return false;
             }
         }
@@ -439,5 +442,30 @@ pub fn merge_versions(parent: VersionJson, child: VersionJson) -> VersionJson {
         inherited_from: None,
         version_type: child.version_type.or(parent.version_type),
         logging: child.logging.or(parent.logging),
+    }
+}
+
+#[cfg(test)]
+mod rule_tests {
+    use super::*;
+
+    #[test]
+    fn x86_means_32_bit_only() {
+        assert!(arch_matches("x86", "x86"));
+        assert!(!arch_matches("x86", "x86_64"));
+        assert!(!arch_matches("x86", "aarch64"));
+        assert!(arch_matches("x86_64", "x86_64"));
+        assert!(arch_matches("amd64", "x86_64"));
+        assert!(arch_matches("arm64", "aarch64"));
+        assert!(!arch_matches("arm64", "x86_64"));
+    }
+
+    #[test]
+    fn arch_rule_follows_the_host() {
+        let rules: Vec<Rule> = serde_json::from_value(serde_json::json!([
+            { "action": "allow", "os": { "arch": "x86" } }
+        ]))
+        .unwrap();
+        assert_eq!(rules_allow(&rules, &Features::default()), std::env::consts::ARCH == "x86");
     }
 }

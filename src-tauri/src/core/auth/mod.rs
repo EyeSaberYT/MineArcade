@@ -7,7 +7,7 @@ pub mod microsoft;
 
 use serde::{Deserialize, Serialize};
 
-use super::paths::{read_json, write_json, AppPaths};
+use super::paths::{read_json, write_private_json, AppPaths};
 use crate::error::Result;
 
 /// How an account authenticates. Kept as an enum so the on-disk format and the
@@ -68,7 +68,8 @@ impl AccountStore {
     }
 
     pub fn save(&self, paths: &AppPaths) -> Result<()> {
-        write_json(&paths.accounts_file(), self)
+        // Holds refresh tokens: other users of the machine must not be able to read it.
+        write_private_json(&paths.accounts_file(), self)
     }
 
     pub fn active_account(&self) -> Option<&Account> {
@@ -82,5 +83,42 @@ impl AccountStore {
         } else {
             self.accounts.push(account);
         }
+    }
+
+    /// Replace a stored account, but never bring back one that was signed out
+    /// meanwhile. Returns whether it was still there.
+    pub fn update(&mut self, account: Account) -> bool {
+        match self.accounts.iter_mut().find(|a| a.uuid == account.uuid) {
+            Some(existing) => {
+                *existing = account;
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod store_tests {
+    use super::*;
+
+    #[test]
+    fn update_does_not_bring_back_a_signed_out_account() {
+        let account = Account {
+            kind: AccountKind::Microsoft,
+            username: "Steve".into(),
+            uuid: "abc".into(),
+            access_token: "old".into(),
+            expires_at: 0,
+            refresh_token: None,
+            skin_url: None,
+        };
+        let mut store = AccountStore::default();
+        assert!(!store.update(account.clone()));
+        assert!(store.accounts.is_empty());
+
+        store.upsert(account.clone());
+        assert!(store.update(Account { access_token: "new".into(), ..account }));
+        assert_eq!(store.accounts[0].access_token, "new");
     }
 }

@@ -5,11 +5,12 @@
 //! disk. The command layer is responsible for turning that metadata into a real
 //! instance (creating its directory, installing the loader, and persisting it).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
+use crate::commands::modrinth::NewInstanceDir;
 use crate::core::import::{self, ImportCandidate, ImportScan, ImportSource};
 use crate::core::instance::{game_dir, Instance, LoaderKind};
 use crate::core::{java, minecraft};
@@ -171,12 +172,37 @@ async fn import_one(
         instance.settings.memory_max = settings.default_memory_max;
     }
 
-    let id = instance.id.clone();
-    let instance_dir = state.paths.instance_dir(&id);
-    let game_dir_path = game_dir(&state.paths, &instance);
+    // Create the instance directory structure before copying. Any failure
+    // from here on removes the folder again, along with whatever was copied.
+    let new_dir = NewInstanceDir::create(state, &instance)?;
+    let result = set_up(app, state, request, &mut instance, &from).await;
+    new_dir.keep_if_ok(result)?;
 
-    // Create the instance directory structure before copying.
-    std::fs::create_dir_all(&game_dir_path)?;
+    // Persist the new instance.
+    state
+        .seed_server_list(&crate::core::instance::game_dir(&state.paths, &instance))
+        .await;
+
+    {
+        let mut store = state.instances.write().await;
+        store.instances.push(instance.clone());
+        store.persist(&state.paths, &instance.id)?;
+    }
+
+    Ok(instance)
+}
+
+/// Fill a freshly created instance folder: icon, the copied game files, and
+/// the loader.
+async fn set_up(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    request: ImportRequest,
+    instance: &mut Instance,
+    from: &Path,
+) -> Result<()> {
+    let instance_dir = state.paths.instance_dir(&instance.id);
+    let game_dir_path = game_dir(&state.paths, instance);
     for sub in ["mods", "resourcepacks", "shaderpacks", "saves", "logs"] {
         std::fs::create_dir_all(game_dir_path.join(sub))?;
     }
@@ -189,12 +215,7 @@ async fn import_one(
     );
 
     // Copy the player's game files into the new instance.
-    import::copy_game_folder(&from, &game_dir_path, request.source, state.sink(app))
-        .inspect_err(|_| {
-            // Roll back: remove the instance folder we just created. Any icon
-            // copied into it goes with it.
-            let _ = std::fs::remove_dir_all(&instance_dir);
-        })?;
+    import::copy_game_folder(from, &game_dir_path, request.source, state.sink(app))?;
 
     // Install the loader. The latest stable is used when the source did not pin
     // a specific build. For Fabric/Quilt the install is lightweight; for
@@ -254,8 +275,6 @@ async fn import_one(
         )
         .await
         {
-            // Roll back the entire imported instance on loader install failure.
-            let _ = std::fs::remove_dir_all(&instance_dir);
             return Err(LauncherError::msg(format!(
                 "Could not set up {} for this instance: {error}",
                 instance.loader.as_str()
@@ -263,16 +282,5 @@ async fn import_one(
         }
     }
 
-    // Persist the new instance.
-    state
-        .seed_server_list(&crate::core::instance::game_dir(&state.paths, &instance))
-        .await;
-
-    {
-        let mut store = state.instances.write().await;
-        store.instances.push(instance.clone());
-        store.persist(&state.paths, &instance.id)?;
-    }
-
-    Ok(instance)
+    Ok(())
 }

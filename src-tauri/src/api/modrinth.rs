@@ -525,6 +525,19 @@ impl ModrinthClient {
             let mut next: Vec<(String, Option<String>)> = vec![];
 
             for (project_id, version_id) in queue {
+                // A pinned version is fetched up front: dependencies may name
+                // only the version, and the project id then comes from it.
+                let pinned = match version_id.as_deref().filter(|id| !id.is_empty()) {
+                    Some(id) => match self.version(id).await {
+                        Ok(version) => Some(version),
+                        Err(_) => continue,
+                    },
+                    None => None,
+                };
+                let project_id = match &pinned {
+                    Some(version) if project_id.is_empty() => version.project_id.clone(),
+                    _ => project_id,
+                };
                 let project = if !project_id.is_empty() {
                     self.project(&project_id).await.ok()
                 } else {
@@ -539,8 +552,8 @@ impl ModrinthClient {
 
                 // Find the best version: the pinned one, else the newest that
                 // matches the loader + game version.
-                let candidate = match version_id.as_deref() {
-                    Some(id) => self.version(id).await.ok(),
+                let candidate = match pinned {
+                    Some(version) => Some(version),
                     None => self
                         .versions(
                             &project.id,

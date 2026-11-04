@@ -231,6 +231,21 @@ impl Instance {
         }
         true
     }
+
+    /// Take the fields the settings page edits from `edited`, keeping
+    /// everything the backend owns.
+    ///
+    /// The frontend saves a copy it loaded when the page opened, so trusting
+    /// it wholesale would roll back play time, the last-played stamp, loader
+    /// installs and content tracked since then. The version and loader are
+    /// changed through their own commands, never through a settings save.
+    pub fn apply_user_edits(&mut self, edited: Instance) {
+        self.name = edited.name;
+        self.icon = edited.icon;
+        self.group = edited.group;
+        self.notes = edited.notes;
+        self.settings = edited.settings;
+    }
 }
 
 /// Generate a human-friendly, filesystem-safe instance id.
@@ -269,7 +284,27 @@ pub struct InstanceStore {
 
 impl InstanceStore {
     pub fn load(paths: &AppPaths) -> Result<Self> {
-        let mut store: InstanceStore = read_json(&paths.instances_index())?.unwrap_or_default();
+        let index = paths.instances_index();
+        let mut store: InstanceStore = match read_json(&index) {
+            Ok(store) => store.unwrap_or_default(),
+            // A damaged index must not keep the launcher from starting: every
+            // instance also has its own `instance.json`, so `reconcile` rebuilds
+            // the list from the folders. The broken file is set aside first so
+            // the next save doesn't destroy whatever it still holds.
+            Err(error) => {
+                let aside = index.with_extension("json.corrupt");
+                log::warn!(
+                    "instances: {} is unreadable ({error}); rebuilding from instance folders, \
+                     original kept as {}",
+                    index.display(),
+                    aside.display()
+                );
+                if let Err(error) = std::fs::rename(&index, &aside) {
+                    log::warn!("instances: could not set the broken index aside: {error}");
+                }
+                InstanceStore::default()
+            }
+        };
         store.sort();
 
         // Repair tracking records written by builds with the modpack id bug.
@@ -328,15 +363,34 @@ impl InstanceStore {
                 if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                     continue;
                 }
-                let id = entry.file_name().to_string_lossy().to_string();
+                // The folder name is the id: every path is derived from it, so
+                // a name that doesn't survive a round trip can't be addressed.
+                let Some(id) = entry.file_name().to_str().map(str::to_string) else {
+                    continue;
+                };
                 if self.instances.iter().any(|i| i.id == id) {
                     continue;
                 }
                 let meta = paths.instance_file(&id);
-                if let Some(mut instance) = read_json::<Instance>(&meta)? {
-                    instance.prune_invalid_projects();
-                    self.instances.push(instance);
+                let mut instance = match read_json::<Instance>(&meta) {
+                    Ok(Some(instance)) => instance,
+                    Ok(None) => continue,
+                    // One damaged instance must not keep the others from loading.
+                    Err(error) => {
+                        log::warn!("instances: skipping {}: {error}", meta.display());
+                        continue;
+                    }
+                };
+                instance.prune_invalid_projects();
+                // A copied or renamed folder still carries its old id, which
+                // points at a folder that isn't this one (or at nothing valid).
+                if instance.id != id {
+                    instance.id = id;
+                    if let Err(error) = write_json(&meta, &instance) {
+                        log::warn!("instances: could not update {}: {error}", meta.display());
+                    }
                 }
+                self.instances.push(instance);
             }
         }
 
@@ -467,6 +521,83 @@ mod tests {
 
         assert!(instance.prune_invalid_projects());
         assert!(instance.installed_projects.is_empty());
+    }
+
+    /// A settings save carries a copy loaded when the page opened; it must not
+    /// roll back what the launcher recorded since.
+    #[test]
+    fn user_edits_keep_backend_owned_fields() {
+        let mut stored = instance_with(vec![record("P7dR8mSH", "mod", &["mods/api.jar"])]);
+        let stale = stored.clone();
+        stored.play_time_secs = 3600;
+        stored.last_played = Some("2026-11-04T10:00:00Z".into());
+        stored.loader_version = Some("0.16.0".into());
+        stored.tags.push("orbit-opt-out".into());
+
+        let mut edited = stale;
+        edited.name = "Renamed".into();
+        edited.group = Some("Survival".into());
+        edited.notes = Some("note".into());
+        edited.settings.memory_max = 8192;
+        edited.installed_projects.clear();
+        edited.id = "elsewhere".into();
+
+        let id = stored.id.clone();
+        stored.apply_user_edits(edited);
+        assert_eq!(stored.name, "Renamed");
+        assert_eq!(stored.group.as_deref(), Some("Survival"));
+        assert_eq!(stored.notes.as_deref(), Some("note"));
+        assert_eq!(stored.settings.memory_max, 8192);
+        assert_eq!(stored.id, id);
+        assert_eq!(stored.play_time_secs, 3600);
+        assert_eq!(stored.last_played.as_deref(), Some("2026-11-04T10:00:00Z"));
+        assert_eq!(stored.loader_version.as_deref(), Some("0.16.0"));
+        assert_eq!(stored.tags, vec!["orbit-opt-out"]);
+        assert_eq!(stored.installed_projects.len(), 1);
+    }
+
+    fn scratch_paths(tag: &str) -> AppPaths {
+        let root = std::env::temp_dir().join(format!(
+            "orbit-launcher-instances-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("instances")).unwrap();
+        AppPaths::new(root)
+    }
+
+    /// One broken instance.json or a broken index must not stop startup, and a
+    /// folder is always imported under its own name.
+    #[test]
+    fn reconcile_skips_bad_instances_and_adopts_folder_names() {
+        let paths = scratch_paths("reconcile");
+        std::fs::write(paths.instances_index(), "{ not json").unwrap();
+
+        let good = Instance::new("Good", "1.21", LoaderKind::Vanilla);
+        let mut moved = Instance::new("Moved", "1.21", LoaderKind::Vanilla);
+        moved.id = r"..\x".into();
+        write_json(&paths.instance_file(&good.id), &good).unwrap();
+        write_json(&paths.instance_file("copied-folder"), &moved).unwrap();
+        std::fs::create_dir_all(paths.instance_dir("broken")).unwrap();
+        std::fs::write(paths.instance_file("broken"), "{ nope").unwrap();
+
+        let mut store = InstanceStore::load(&paths).expect("a broken index still loads");
+        assert!(paths.instances_index().with_extension("json.corrupt").is_file());
+        store.reconcile(&paths).expect("a broken instance is skipped");
+
+        let mut ids: Vec<&str> = store.instances.iter().map(|i| i.id.as_str()).collect();
+        ids.sort();
+        let mut expected = vec![good.id.as_str(), "copied-folder"];
+        expected.sort();
+        assert_eq!(ids, expected);
+        let on_disk: Instance = read_json(&paths.instance_file("copied-folder")).unwrap().unwrap();
+        assert_eq!(on_disk.id, "copied-folder");
+
+        // A second start finds the same instances, not duplicates.
+        let mut again = InstanceStore::load(&paths).unwrap();
+        again.reconcile(&paths).unwrap();
+        assert_eq!(again.instances.len(), 2);
+        let _ = std::fs::remove_dir_all(&paths.root);
     }
 
     #[test]

@@ -81,7 +81,12 @@ async function resolve() {
       match = candidate;
       candidate.names.forEach((name, index) => {
         const value = result[index + 1];
-        if (value !== undefined) params[name] = decodeURIComponent(value);
+        if (value === undefined) return;
+        try {
+          params[name] = decodeURIComponent(value);
+        } catch {
+          match = null; // A malformed escape such as %E0 is not a valid route.
+        }
       });
       break;
     }

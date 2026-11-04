@@ -70,11 +70,16 @@ pub async fn launch_instance(
         }
     };
 
-    // Running until the process exits (AppState::game_sink drops the session then).
-    if let Some(game) = state.sessions.lock().await.get_mut(&session) {
-        game.pid = result.pid;
+    // Running until the process exits (AppState::game_sink drops the session then). A game
+    // that already exited is gone from the map, and its exit already cleared the presence:
+    // checked under the lock so the exit can't slip in between.
+    {
+        let mut sessions = state.sessions.lock().await;
+        if let Some(game) = sessions.get_mut(&session) {
+            game.pid = result.pid;
+            state.presence.game_started(crate::core::discord::Game::from_instance(&instance));
+        }
     }
-    state.presence.game_started(crate::core::discord::Game::from_instance(&instance));
     {
         let mut store = state.instances.write().await;
         if let Ok(entry) = store.get_mut(&id) {
@@ -149,29 +154,42 @@ pub async fn launch_logs(
 /// Mark an instance as no longer running (used when the launcher loses track).
 #[tauri::command]
 pub async fn launch_mark_stopped(state: State<'_, AppState>, id: String) -> Result<()> {
-    state.sessions.lock().await.retain(|_, game| game.instance_id != id);
+    // Copies still starting (no pid yet) are tracked by their launch, not lost.
+    state.sessions.lock().await.retain(|_, game| game.instance_id != id || game.pid == 0);
     state.presence.game_stopped(&id);
     Ok(())
 }
 
-/// Force-close every running game of an instance. `game://exit` follows for each
-/// once its process is gone.
+/// Force-close every game of an instance, including copies still starting (their launch
+/// is called off, or the game killed as soon as it's spawned). `game://exit` follows for
+/// each running one once its process is gone.
 #[tauri::command]
 pub async fn launch_stop(state: State<'_, AppState>, id: String) -> Result<()> {
-    let mut sessions = state.sessions.lock().await;
     let mut stopped = 0;
-    for (session, game) in sessions.iter_mut().filter(|(_, game)| game.instance_id == id && game.pid != 0) {
-        stopped += 1;
-        log::info!("stop requested for instance {id} (session {session}, pid {})", game.pid);
-        // The watcher kills the game when told to; if it can't be told (already asked, or
-        // it's gone), kill the process directly so Stop always does something.
-        let told = game.stop.take().is_some_and(|stop| stop.send(()).is_ok());
-        if !told {
-            launch::kill_tree(game.pid).await;
+    let mut kill = Vec::new();
+    {
+        let mut sessions = state.sessions.lock().await;
+        for (session, game) in sessions.iter_mut().filter(|(_, game)| game.instance_id == id) {
+            stopped += 1;
+            log::info!("stop requested for instance {id} (session {session}, pid {})", game.pid);
+            // The watcher kills the game when told to. Already asked once: kill the process
+            // directly so Stop always does something. A closed channel means the watcher is
+            // done, so the pid may belong to another program by now: leave it alone.
+            match game.stop.take() {
+                Some(stop) => {
+                    let _ = stop.send(());
+                }
+                None if game.pid != 0 => kill.push(game.pid),
+                None => {}
+            }
         }
     }
     if stopped == 0 {
         return Err(LauncherError::msg("That instance isn't running."));
+    }
+    // taskkill can take a while: not under the sessions lock.
+    for pid in kill {
+        launch::kill_tree(pid).await;
     }
     Ok(())
 }

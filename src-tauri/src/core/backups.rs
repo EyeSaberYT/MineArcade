@@ -192,7 +192,7 @@ pub fn create(game_dir: &Path, instance_dir: &Path, world: &str) -> Result<Backu
 /// undone — see [`Restored::safety`].
 pub fn restore(game_dir: &Path, instance_dir: &Path, file: &str) -> Result<Restored> {
     let file = checked_name(file)?;
-    if !file.to_ascii_lowercase().ends_with(".zip") {
+    if strip_zip(file).is_none() {
         return Err(LauncherError::msg(format!("\"{file}\" is not a backup.")));
     }
 
@@ -222,12 +222,7 @@ pub fn restore(game_dir: &Path, instance_dir: &Path, file: &str) -> Result<Resto
         None
     };
 
-    if target.is_dir() {
-        // `remove_dir_all` reports a missing path as an error on Windows, which
-        // is why this is spelled out rather than called unconditionally.
-        std::fs::remove_dir_all(&target)?;
-    }
-    if let Err(error) = extract(&source, &target) {
+    if let Err(error) = replace_world(&source, &target, &world) {
         let hint = match &safety {
             Some(name) => format!("the world that was there is saved as \"{name}\""),
             None => "there was no world there to lose".into(),
@@ -238,6 +233,50 @@ pub fn restore(game_dir: &Path, instance_dir: &Path, file: &str) -> Result<Resto
     }
 
     Ok(Restored { world, safety })
+}
+
+/// Swap the world at `target` for the contents of the backup at `source`.
+///
+/// The backup is unpacked beside the world first, so a zip that turns out to
+/// be damaged fails before the current world is touched. The old world is
+/// moved aside rather than deleted until the new one is in place, and moved
+/// back if that last rename fails.
+fn replace_world(source: &Path, target: &Path, world: &str) -> Result<()> {
+    let saves = target.parent().unwrap_or(target);
+    let staging = saves.join(format!(".{world}.restoring"));
+    let replaced = saves.join(format!(".{world}.replaced"));
+    // Leftovers from an interrupted restore. `remove_dir_all` reports a
+    // missing path as an error on Windows, so this ignores the result.
+    let _ = std::fs::remove_dir_all(&staging);
+    let _ = std::fs::remove_dir_all(&replaced);
+
+    if let Err(error) = extract(source, &staging) {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+
+    let had_world = target.is_dir();
+    if had_world {
+        if let Err(error) = std::fs::rename(target, &replaced) {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(error.into());
+        }
+    }
+    if let Err(error) = std::fs::rename(&staging, target) {
+        if had_world {
+            let _ = std::fs::rename(&replaced, target);
+        }
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(error.into());
+    }
+    if had_world {
+        // The safety backup already holds it; a leftover folder only costs
+        // disk space and is cleared by the next restore.
+        if let Err(error) = std::fs::remove_dir_all(&replaced) {
+            log::warn!("backups: could not remove {}: {error}", replaced.display());
+        }
+    }
+    Ok(())
 }
 
 /// Delete a backup by file name.
@@ -259,9 +298,11 @@ pub fn remove(instance_dir: &Path, file: &str) -> Result<()> {
 
 /// A world or backup name is one path segment. Anything else — a separator, a
 /// parent step, an absolute path — is rejected before it can reach the disk.
+///
+/// The name is used exactly as given: the game allows leading and trailing
+/// spaces in a world folder, and trimming would point at a different folder.
 fn checked_name(name: &str) -> Result<&str> {
-    let name = name.trim();
-    let rejected = name.is_empty()
+    let rejected = name.trim().is_empty()
         || name == "."
         || name == ".."
         || name.contains(['/', '\\', ':'])
@@ -281,7 +322,7 @@ fn checked_name(name: &str) -> Result<&str> {
 /// segments shaped like `YYYYMMDD` and `HHMMSS`. Anything trailing it is a
 /// collision counter that `unique_path` added.
 fn world_of(file_name: &str) -> String {
-    let stem = file_name.strip_suffix(".zip").unwrap_or(file_name);
+    let stem = strip_zip(file_name).unwrap_or(file_name);
     let parts: Vec<&str> = stem.split('-').collect();
 
     // Stop at the second-to-last segment: a stamp needs a pair.
@@ -313,6 +354,15 @@ fn unique_path(dir: &Path, world: &str) -> PathBuf {
         counter += 1;
     }
     candidate
+}
+
+/// `name` without its `.zip` extension, in any case, or `None` if it has none.
+/// Listing accepts `.ZIP` (see [`has_zip_extension`]), so everything that reads
+/// a backup's name back has to as well.
+fn strip_zip(name: &str) -> Option<&str> {
+    let split = name.len().checked_sub(4)?;
+    let (stem, extension) = (name.get(..split)?, name.get(split..)?);
+    extension.eq_ignore_ascii_case(".zip").then_some(stem)
 }
 
 fn has_zip_extension(path: &Path) -> bool {
@@ -648,6 +698,57 @@ mod tests {
         assert_eq!(restored.world, "Evil");
         assert_eq!(read_level(&saves_dir(&game).join("Evil")), "level evil");
         assert!(!root.join("escaped.txt").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_damaged_backup_leaves_the_current_world_in_place() {
+        let root = temp_dir("damaged");
+        let game = root.join("game");
+        let instance = root.join("instance");
+        make_world(&game, "Survival", "current");
+        std::fs::create_dir_all(backups_dir(&instance)).unwrap();
+        std::fs::write(
+            backups_dir(&instance).join("Survival-20250101-000000.zip"),
+            b"not a zip",
+        )
+        .unwrap();
+
+        let error = restore(&game, &instance, "Survival-20250101-000000.zip")
+            .expect_err("a damaged zip must fail")
+            .to_string();
+        assert!(error.contains("saved as"), "{error}");
+        assert_eq!(read_level(&saves_dir(&game).join("Survival")), "level current");
+        // Nothing half-extracted is left beside it.
+        let names: Vec<String> = std::fs::read_dir(saves_dir(&game))
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, vec!["Survival"]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn upper_case_zips_and_padded_names_are_handled() {
+        let root = temp_dir("names");
+        let game = root.join("game");
+        let instance = root.join("instance");
+        make_world(&game, " Padded", "padded");
+
+        let backup = create(&game, &instance, " Padded").unwrap();
+        assert_eq!(backup.world, " Padded");
+        let upper = backup.name.replace(".zip", ".ZIP");
+        std::fs::rename(
+            backups_dir(&instance).join(&backup.name),
+            backups_dir(&instance).join(&upper),
+        )
+        .unwrap();
+        assert_eq!(list(&instance).unwrap()[0].world, " Padded");
+
+        let restored = restore(&game, &instance, &upper).unwrap();
+        assert_eq!(restored.world, " Padded");
+        assert_eq!(read_level(&saves_dir(&game).join(" Padded")), "level padded");
         let _ = std::fs::remove_dir_all(&root);
     }
 

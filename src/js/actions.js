@@ -28,10 +28,15 @@ export async function refreshAccounts() {
 /** How many games of this instance are running (an instance can run several times). */
 export const runningCount = (id) => store.state.runningCounts.get(id) ?? 0;
 
+// Each refresh gets a number: an older answer arriving late must not overwrite a newer one.
+let runningRequest = 0;
+
 export async function refreshRunning() {
+  const request = ++runningRequest;
   try {
     // One entry per running game, so an instance running twice is listed twice.
     const games = await api.launch.running();
+    if (request !== runningRequest) return;
     const counts = new Map();
     for (const id of games) counts.set(id, (counts.get(id) ?? 0) + 1);
     store.set('runningCounts', counts);
@@ -269,7 +274,7 @@ export async function stopInstance(id, name = 'Minecraft') {
     // The launcher lost track of it (e.g. after a restart): just clear the flag.
     stopRequests.delete(id);
     await api.launch.markStopped(id).catch(() => {});
-    store.update('running', (set) => void set.delete(id));
+    await refreshRunning();
     toastError(error);
   }
 }
@@ -287,6 +292,7 @@ export function signIn() {
     return;
   }
   store.set('deviceCode', null);
+  store.set('signInError', null);
   store.set('signingIn', true);
   showSignInDialog();
 
@@ -298,13 +304,9 @@ export function signIn() {
       signInModal?.close();
     })
     .catch((error) => {
-      if (signInModal && !signInModal.closed) {
-        const status = signInModal.body.querySelector('[data-status]');
-        if (status) {
-          status.classList.add('danger-text');
-          status.textContent = errorText(error);
-        }
-      } else {
+      // Kept in the store so the dialog still shows it after the device code is cleared below.
+      store.set('signInError', errorText(error));
+      if (!signInModal || signInModal.closed) {
         toast('Sign-in failed', { kind: 'error', description: errorText(error) });
       }
     })
@@ -333,6 +335,16 @@ function showSignInDialog() {
   const slot = signInModal.body.querySelector('[data-signin]');
 
   const render = () => {
+    const failed = store.state.signInError;
+    if (failed) {
+      slot.innerHTML = String(html`
+        <div class="stack">
+          <p class="small danger-text" data-status>${failed}</p>
+          <button class="btn btn-primary" data-retry>Try again</button>
+        </div>`);
+      slot.querySelector('[data-retry]').addEventListener('click', () => signIn());
+      return;
+    }
     const code = store.state.deviceCode;
     if (!code) {
       slot.innerHTML = String(html`<div class="loading-block">${spinner()} Contacting Microsoft…</div>`);
@@ -364,7 +376,7 @@ function showSignInDialog() {
     });
   };
 
-  const off = store.on('deviceCode', render);
+  const off = store.on(['deviceCode', 'signInError'], render);
   render();
 }
 
