@@ -33,3 +33,4 @@ pub mod scan;
 pub mod screenshots;
 pub mod servers;
 pub mod skin;
+pub mod social;

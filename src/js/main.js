@@ -9,6 +9,7 @@ import {
   wasStopped,
 } from './actions.js';
 import { mountAccountMenu } from './components/account-menu.js';
+import { startFriends, totalUnread } from './friends.js';
 import { initDrop } from './drop.js';
 import { currentRoute, navigate, onNavigate, route, startRouter } from './router.js';
 import { appendConsole, store } from './store.js';
@@ -24,6 +25,7 @@ route('/instance/:id/:tab?', () => import('./pages/instance.js'));
 route('/discover/:type?', () => import('./pages/discover.js'));
 route('/project/:source/:id', () => import('./pages/project.js'));
 route('/settings/:section?', () => import('./pages/settings.js'));
+route('/friends', () => import('./pages/friends.js'));
 
 // ---------- Shell: the top bar's tabs and status ----------
 
@@ -32,6 +34,7 @@ const sectionOf = (path) => {
   if (path.startsWith('/library') || path.startsWith('/instance')) return 'library';
   if (path.startsWith('/discover') || path.startsWith('/project')) return 'discover';
   if (path.startsWith('/settings')) return 'settings';
+  if (path.startsWith('/friends')) return 'friends';
   return '';
 };
 
@@ -45,6 +48,15 @@ function mountNav() {
   onNavigate(highlight);
   highlight(currentRoute().path);
   mountAccountMenu($('#account-box'));
+
+  // Unread messages and friend requests, on the Friends tab.
+  const badge = $('#friends-badge');
+  const count = () => {
+    const n = totalUnread() + store.state.social.incoming.length;
+    badge.textContent = n ? (n > 9 ? '9+' : String(n)) : '';
+  };
+  store.on(['social', 'unread'], count);
+  count();
 }
 
 /**
@@ -274,6 +286,7 @@ async function boot() {
   await Promise.all([refreshInstances(), refreshAccounts(), refreshRunning()]);
   startRouter();
   startUpdateCheck();
+  startFriends();
 }
 
 boot().catch((error) => {

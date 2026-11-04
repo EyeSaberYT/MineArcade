@@ -24,6 +24,21 @@ export const auth = {
   setActive: (uuid) => invoke('auth_set_active', { uuid }),
 };
 
+/**
+ * Friends through Orbit Client's server (shared with the game).
+ * poll -> { friends: [{ uuid, name, online, server }], incoming: [{ uuid, name }], outgoing, blocked,
+ *           messages: [{ id, from, to, text, time }], lastMessage }
+ * server is an address, 'singleplayer', 'launcher' or '' (menus, or hidden).
+ */
+export const social = {
+  poll: (since) => invoke('social_poll', { since }),
+  request: (name) => invoke('social_request', { name }),
+  accept: (uuid) => invoke('social_accept', { uuid }),
+  remove: (uuid) => invoke('social_remove', { uuid }),
+  block: (uuid, block) => invoke('social_block', { uuid, block }),
+  message: (to, text) => invoke('social_message', { to, text }),
+};
+
 export const instances = {
   list: () => invoke('instance_list'),
   get: (id) => invoke('instance_get', { id }),

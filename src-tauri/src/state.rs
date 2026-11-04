@@ -38,6 +38,8 @@ pub struct AppState {
     pub next_session: std::sync::atomic::AtomicU64,
     /// Discord Rich Presence (a no-op without an application ID).
     pub presence: crate::core::discord::Presence,
+    /// Friends through Orbit Client's server: where it is, and the sign-in.
+    pub social: crate::core::social::Social,
 }
 
 impl AppState {
@@ -70,6 +72,7 @@ impl AppState {
             sessions: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             next_session: std::sync::atomic::AtomicU64::new(1),
             presence,
+            social: Default::default(),
         })
     }
 

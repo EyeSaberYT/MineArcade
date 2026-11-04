@@ -16,6 +16,11 @@ const state = {
   running: new Set(),
   /** Per instance id, how many of its games are running (multi-launching). */
   runningCounts: new Map(),
+  /** Friends (see friends.js): { friends, incoming, outgoing, blocked, loaded, error }. */
+  social: { friends: [], incoming: [], outgoing: [], blocked: [], loaded: false, error: '' },
+  /** Per friend uuid, the messages of the last day (oldest first), and how many are unread. */
+  chats: new Map(),
+  unread: new Map(),
   /** Ids of instances being prepared (downloads, auth, Java) but not yet started. */
   launching: new Set(),
   /** Latest `download://progress` snapshot, or null. */

@@ -9,6 +9,7 @@
 //   #/discover/:type?                    browse Modrinth / CurseForge (?q=&source=&instance=)
 //   #/project/:source/:id                project page (source: modrinth | curseforge; ?instance=)
 //   #/settings/:section?                 settings
+//   #/friends                            friends and chats (?chat=<uuid> opens one)
 
 const routes = [];
 let current = { cleanup: null, token: 0 };
