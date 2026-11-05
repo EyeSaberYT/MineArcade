@@ -328,6 +328,18 @@ pub async fn detect(
     found.into_iter().max_by_key(|r| r.major)
 }
 
+/// A Java to run Forge and NeoForge installers with (they need 17 or newer): an installed
+/// one that's new enough, else Mojang's runtime downloaded like a launch would. A player
+/// without Java 17 yet would otherwise be told to install it, or run an older Java.
+pub async fn for_installer(http: &reqwest::Client, paths: &AppPaths, sink: ProgressSink) -> Result<JavaRuntime> {
+    if let Some(runtime) = detect(paths, None, 17).await.filter(|r| r.major >= 17) {
+        return Ok(runtime);
+    }
+    install(http, paths, 17, sink)
+        .await
+        .map_err(|e| LauncherError::msg(format!("While setting up Java for the installer: {e}")))
+}
+
 /// Enumerate every Java runtime we can find (for the settings UI).
 pub async fn list(paths: &AppPaths) -> Vec<JavaRuntime> {
     let mut candidates = managed_candidates(paths);

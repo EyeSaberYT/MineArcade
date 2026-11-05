@@ -558,10 +558,7 @@ pub async fn modrinth_install_modpack(
         if let Some(loader_version) = loader_version.as_deref() {
             if loader != LoaderKind::Vanilla {
                 let java_path = match loader {
-                    LoaderKind::Forge | LoaderKind::NeoForge => java::detect(&state.paths, None, 17)
-                        .await
-                        .map(|r| r.as_path())
-                        .unwrap_or_else(|| PathBuf::from("java")),
+                    LoaderKind::Forge | LoaderKind::NeoForge => java::for_installer(&state.http, &state.paths, state.sink(&app)).await?.as_path(),
                     _ => PathBuf::from("java"),
                 };
                 loader::install_loader(
@@ -675,10 +672,7 @@ pub(crate) async fn install_cf_pack(
         if let Some(version) = loader_version.as_deref() {
             if loader != LoaderKind::Vanilla {
                 let java_path = match loader {
-                    LoaderKind::Forge | LoaderKind::NeoForge => java::detect(&state.paths, None, 17)
-                        .await
-                        .map(|r| r.as_path())
-                        .unwrap_or_else(|| PathBuf::from("java")),
+                    LoaderKind::Forge | LoaderKind::NeoForge => java::for_installer(&state.http, &state.paths, state.sink(&app)).await?.as_path(),
                     _ => PathBuf::from("java"),
                 };
                 loader::install_loader(
@@ -919,10 +913,7 @@ pub async fn ensure_loader_installed(
 
     let dir = game_dir(&state.paths, instance);
     let java_path = match instance.loader {
-        LoaderKind::Forge | LoaderKind::NeoForge => java::detect(&state.paths, None, 17)
-            .await
-            .map(|r| r.as_path())
-            .unwrap_or_else(|| PathBuf::from("java")),
+        LoaderKind::Forge | LoaderKind::NeoForge => java::for_installer(&state.http, &state.paths, state.sink(&app)).await?.as_path(),
         _ => PathBuf::from("java"),
     };
 

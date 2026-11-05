@@ -393,13 +393,37 @@ pub fn cached_version_file(paths: &AppPaths, id: &str) -> PathBuf {
 // Inheritance
 // ---------------------------------------------------------------------------
 
+/// A library's identity without its version: `group:artifact[:classifier]` (and
+/// `@extension`), so `org.ow2.asm:asm:9.6` and `org.ow2.asm:asm:9.7` are one library
+/// while `lwjgl:3.3.3` and `lwjgl:3.3.3:natives-windows` are two.
+fn library_key(name: &str) -> String {
+    let (coords, ext) = match name.split_once('@') {
+        Some((coords, ext)) => (coords, Some(ext)),
+        None => (name, None),
+    };
+    let parts: Vec<&str> = coords.split(':').collect();
+    let mut key = match parts.as_slice() {
+        [group, artifact, _version, classifier, ..] => format!("{group}:{artifact}:{classifier}"),
+        [group, artifact, ..] => format!("{group}:{artifact}"),
+        _ => coords.to_string(),
+    };
+    if let Some(ext) = ext {
+        key.push('@');
+        key.push_str(ext);
+    }
+    key
+}
+
 /// Merge a child version (e.g. a Fabric profile) onto its parent (vanilla).
 ///
-/// Child libraries come first so they win classpath conflicts, matching the
-/// behaviour of the official launcher.
+/// Child libraries come first, and replace the parent's copy of the same library
+/// (in any version), matching the behaviour of the official launcher. Both on the
+/// classpath would load twice: NeoForge refuses to start ("Duplicate key
+/// ...commons-lang3-3.14.0.jar") and newer copies would mix with older ones.
 pub fn merge_versions(parent: VersionJson, child: VersionJson) -> VersionJson {
     let mut libraries = child.libraries.clone();
-    libraries.extend(parent.libraries.clone());
+    let overridden: std::collections::HashSet<String> = child.libraries.iter().map(|l| library_key(&l.name)).collect();
+    libraries.extend(parent.libraries.iter().filter(|l| !overridden.contains(&library_key(&l.name))).cloned());
 
     let main_class = if child.main_class.is_empty() {
         parent.main_class.clone()
@@ -448,6 +472,35 @@ pub fn merge_versions(parent: VersionJson, child: VersionJson) -> VersionJson {
 #[cfg(test)]
 mod rule_tests {
     use super::*;
+
+    #[test]
+    fn loader_libraries_replace_the_games_copies() {
+        let version = |id: &str, libraries: &[&str]| -> VersionJson {
+            serde_json::from_value(serde_json::json!({
+                "id": id,
+                "libraries": libraries.iter().map(|name| serde_json::json!({ "name": name })).collect::<Vec<_>>(),
+            }))
+            .unwrap()
+        };
+        let game = version("1.21.1", &[
+            "org.apache.commons:commons-lang3:3.14.0",
+            "org.ow2.asm:asm:9.6",
+            "org.lwjgl:lwjgl:3.3.3",
+            "org.lwjgl:lwjgl:3.3.3:natives-windows",
+            "com.mojang:brigadier:1.3.10",
+        ]);
+        let loader = version("neoforge-21.1.265", &["org.apache.commons:commons-lang3:3.14.0", "org.ow2.asm:asm:9.7", "net.neoforged:neoforge:21.1.265:universal"]);
+        let names: Vec<String> = merge_versions(game, loader).libraries.into_iter().map(|l| l.name).collect();
+        assert_eq!(names, [
+            "org.apache.commons:commons-lang3:3.14.0",
+            "org.ow2.asm:asm:9.7",
+            "net.neoforged:neoforge:21.1.265:universal",
+            "org.lwjgl:lwjgl:3.3.3",
+            "org.lwjgl:lwjgl:3.3.3:natives-windows",
+            "com.mojang:brigadier:1.3.10",
+        ]);
+        assert_eq!(library_key("de.oceanlabs.mcp:mcp_config:1.21.1-20240808@zip"), "de.oceanlabs.mcp:mcp_config@zip");
+    }
 
     #[test]
     fn x86_means_32_bit_only() {

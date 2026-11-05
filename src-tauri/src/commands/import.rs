@@ -250,13 +250,7 @@ async fn set_up(
         // the install can proceed. Fabric/Quilt do not need an explicit path.
         let java_path = match instance.loader {
             LoaderKind::Forge | LoaderKind::NeoForge => {
-                match java::detect(&state.paths, None, 17).await {
-                    Some(runtime) => runtime.as_path(),
-                    None => {
-                        let runtime = java::install(&state.http, &state.paths, 17, state.sink(app)).await?;
-                        runtime.as_path()
-                    }
-                }
+                java::for_installer(&state.http, &state.paths, state.sink(app)).await?.as_path()
             }
             _ => PathBuf::from("java"),
         };

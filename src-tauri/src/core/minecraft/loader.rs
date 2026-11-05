@@ -21,6 +21,8 @@ const FABRIC_META: &str = "https://meta.fabricmc.net/v2";
 const QUILT_META: &str = "https://meta.quiltmc.org/v3";
 const FORGE_MAVEN: &str = "https://maven.minecraftforge.net";
 const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases";
+/// Forge's recommended/latest builds per game version (no longer served from its Maven).
+const FORGE_PROMOTIONS: &str = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
 
 /// One selectable loader build.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,39 +84,21 @@ pub async fn list_loader_versions(
                 .collect())
         }
         LoaderKind::Forge => {
-            let promotions: serde_json::Value =
-                get_json(http, &format!("{FORGE_MAVEN}/net/minecraftforge/forge/promotions_slim.json"))
-                    .await?;
-            let promos = promotions
-                .get("promos")
-                .cloned()
-                .unwrap_or(serde_json::json!({}));
-            let mut out = vec![];
-            for (key, value) in promos.as_object().into_iter().flatten() {
-                // Keys look like "1.20.1-latest" / "1.20.1-recommended".
-                if let Some(game) = key.strip_suffix("-latest") {
-                    if game == game_version {
-                        if let Some(version) = value.as_str() {
-                            out.push(LoaderVersion {
-                                version: version.to_string(),
-                                stable: false,
-                                game_version: game.to_string(),
-                            });
-                        }
-                    }
-                } else if let Some(game) = key.strip_suffix("-recommended") {
-                    if game == game_version {
-                        if let Some(version) = value.as_str() {
-                            out.push(LoaderVersion {
-                                version: version.to_string(),
-                                stable: true,
-                                game_version: game.to_string(),
-                            });
-                        }
-                    }
-                }
-            }
-            Ok(out)
+            // Every build comes from Forge's Maven index (the installers' own server). Which
+            // one Forge recommends comes from its promotions file, which moved off the Maven
+            // to files.minecraftforge.net; without it the newest build is offered first.
+            let xml = http
+                .get(format!("{FORGE_MAVEN}/net/minecraftforge/forge/maven-metadata.xml"))
+                .send()
+                .await?
+                .error_for_status()?
+                .text()
+                .await?;
+            let recommended = get_json::<serde_json::Value>(http, FORGE_PROMOTIONS)
+                .await
+                .ok()
+                .and_then(|p| p.get("promos")?.get(format!("{game_version}-recommended"))?.as_str().map(str::to_string));
+            Ok(forge_builds(&extract_xml_tags(&xml, "version"), game_version, recommended.as_deref()))
         }
         LoaderKind::NeoForge => {
             let Some(prefix) = neoforge_prefix(game_version) else {
@@ -124,20 +108,61 @@ pub async fn list_loader_versions(
                 .get(format!("{NEOFORGE_MAVEN}/net/neoforged/neoforge/maven-metadata.xml"))
                 .send()
                 .await?
+                .error_for_status()?
                 .text()
-                .await
-                .unwrap_or_default();
-            Ok(extract_xml_tags(&xml, "version")
-                .into_iter()
-                .filter(|v| v.starts_with(&prefix))
-                .map(|v| LoaderVersion {
-                    version: v,
-                    stable: true,
-                    game_version: game_version.to_string(),
-                })
-                .collect())
+                .await?;
+            Ok(neoforge_builds(&extract_xml_tags(&xml, "version"), &prefix, game_version))
         }
     }
+}
+
+/// Numbers of a version for ordering: "47.4.10" → [47, 4, 10], "21.1.0-beta" → [21, 1, 0].
+fn version_key(version: &str) -> Vec<u64> {
+    version
+        .split(['.', '-'])
+        .map_while(|part| {
+            let digits: String = part.chars().take_while(char::is_ascii_digit).collect();
+            digits.parse().ok()
+        })
+        .collect()
+}
+
+/// A game version's Forge builds from the Maven's version list, newest first. The Maven names
+/// them `<game>-<forge>`, and builds before 1.10 also end in `-<game>`; the instance stores
+/// just the Forge part (as modpacks do). Forge's recommended build, if any, is the stable one.
+fn forge_builds(all: &[String], game_version: &str, recommended: Option<&str>) -> Vec<LoaderVersion> {
+    let prefix = format!("{game_version}-");
+    let suffix = format!("-{game_version}");
+    let mut builds: Vec<String> = all
+        .iter()
+        .filter_map(|v| v.strip_prefix(&prefix))
+        .map(|rest| rest.strip_suffix(&suffix).unwrap_or(rest).to_string())
+        .filter(|build| build.starts_with(|c: char| c.is_ascii_digit()))
+        .collect();
+    builds.sort_by(|a, b| version_key(b).cmp(&version_key(a)));
+    builds.dedup();
+    builds
+        .into_iter()
+        .map(|version| LoaderVersion {
+            stable: recommended == Some(version.as_str()),
+            version,
+            game_version: game_version.to_string(),
+        })
+        .collect()
+}
+
+/// NeoForge builds for a game version, newest first; betas aren't stable.
+fn neoforge_builds(all: &[String], prefix: &str, game_version: &str) -> Vec<LoaderVersion> {
+    let mut builds: Vec<&String> = all.iter().filter(|v| v.starts_with(prefix)).collect();
+    builds.sort_by(|a, b| version_key(b).cmp(&version_key(a)));
+    builds
+        .into_iter()
+        .map(|v| LoaderVersion {
+            version: v.clone(),
+            stable: !v.contains("beta") && !v.contains("alpha"),
+            game_version: game_version.to_string(),
+        })
+        .collect()
 }
 
 /// The `net.neoforged:neoforge` version prefix for a game version: 1.20.4 →
@@ -500,6 +525,38 @@ mod forge_tests {
     }
 
     #[test]
+    fn lists_forge_builds_newest_first() {
+        let maven: Vec<String> = [
+            "1.20.1-47.4.10", "1.20.1-47.2.0", "1.20.1-47.4.9", "1.20.10-99.0.0", "1.21.1-52.1.0",
+            "1.7.10-10.13.4.1614-1.7.10", "1.7.10-10.13.4.1558-1.7.10",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let builds = forge_builds(&maven, "1.20.1", Some("47.4.9"));
+        let versions: Vec<&str> = builds.iter().map(|b| b.version.as_str()).collect();
+        // 47.4.10 is newer than 47.4.9 (numbers, not text); 1.20.10 isn't 1.20.1.
+        assert_eq!(versions, ["47.4.10", "47.4.9", "47.2.0"]);
+        assert_eq!(builds.iter().filter(|b| b.stable).map(|b| b.version.as_str()).collect::<Vec<_>>(), ["47.4.9"]);
+        // Old builds lose their game-version suffix.
+        let old: Vec<String> = forge_builds(&maven, "1.7.10", None).into_iter().map(|b| b.version).collect();
+        assert_eq!(old, ["10.13.4.1614", "10.13.4.1558"]);
+    }
+
+    #[test]
+    fn lists_neoforge_builds_newest_first() {
+        let maven: Vec<String> = ["21.1.1", "21.1.9", "21.1.10", "21.1.228", "21.2.0-beta", "21.1.230-beta"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let builds = neoforge_builds(&maven, "21.1.", "1.21.1");
+        let versions: Vec<&str> = builds.iter().map(|b| b.version.as_str()).collect();
+        assert_eq!(versions, ["21.1.230-beta", "21.1.228", "21.1.10", "21.1.9", "21.1.1"]);
+        // What a new instance picks: the newest stable build.
+        assert_eq!(builds.iter().find(|b| b.stable).map(|b| b.version.as_str()), Some("21.1.228"));
+    }
+
+    #[test]
     fn neoforge_prefixes_match_only_their_game_version() {
         assert_eq!(neoforge_prefix("1.20.4").as_deref(), Some("20.4."));
         assert_eq!(neoforge_prefix("1.21").as_deref(), Some("21.0."));
@@ -540,5 +597,49 @@ mod forge_tests {
             .join("net/minecraftforge/forge/1.8.9-11.15.1.2318-1.8.9/forge-1.8.9-11.15.1.2318-1.8.9.jar")
             .is_file());
         let _ = std::fs::remove_dir_all(&libs);
+    }
+}
+
+/// Real installs into a scratch folder (downloads installers and libraries, a few minutes).
+/// Run with ORBIT_LIVE_JAVA set to a Java 17+ executable:
+/// `cargo test --lib live_forge -- --ignored --nocapture`
+#[cfg(test)]
+mod live_forge_tests {
+    use super::*;
+
+    async fn install(kind: LoaderKind, game: &str) -> Result<String> {
+        let java = std::env::var("ORBIT_LIVE_JAVA").expect("set ORBIT_LIVE_JAVA");
+        let root = std::env::temp_dir().join(format!("orbit-live-{}-{}-{}", kind.as_str(), game, std::process::id()));
+        let paths = AppPaths::new(&root);
+        paths.ensure()?;
+        let http = reqwest::Client::builder().user_agent("orbit-launcher-test").build().unwrap();
+        let versions = list_loader_versions(&http, kind, game).await?;
+        let version = versions.iter().find(|v| v.stable).or_else(|| versions.first()).expect("a build").version.clone();
+        println!("{} {game}: installing {version} into {}", kind.as_str(), root.display());
+        let id = install_loader(&http, &paths, &root, kind, game, &version, Path::new(&java), crate::core::download::silent()).await?;
+        assert!(is_installed(&paths, &id), "{id} not installed");
+        Ok(id)
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_forge() {
+        let mut failures = vec![];
+        for (kind, game) in [
+            (LoaderKind::Forge, "1.20.1"),
+            (LoaderKind::Forge, "1.21.1"),
+            (LoaderKind::Forge, "1.16.5"),
+            (LoaderKind::Forge, "1.12.2"),
+            (LoaderKind::NeoForge, "1.21.1"),
+        ] {
+            match install(kind, game).await {
+                Ok(id) => println!("OK   {} {game}: {id}", kind.as_str()),
+                Err(error) => {
+                    println!("FAIL {} {game}: {error}", kind.as_str());
+                    failures.push(format!("{} {game}", kind.as_str()));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "failed: {failures:?}");
     }
 }

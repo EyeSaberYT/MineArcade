@@ -791,3 +791,112 @@ mod running_tests {
         assert!(!java_is_running(pid).await);
     }
 }
+
+/// Starts a real modded game in a scratch folder and watches it get to the title screen.
+/// Downloads the game (a few minutes). Run with ORBIT_LIVE_JAVA (Java 17+ for the installer),
+/// ORBIT_LIVE_LOADER (forge | neoforge), ORBIT_LIVE_GAME and ORBIT_LIVE_LOADER_VERSION:
+/// `cargo test --lib live_loader_launch -- --ignored --nocapture`
+#[cfg(test)]
+mod live_launch_tests {
+    use super::*;
+    use crate::core::auth::AccountKind;
+    use crate::core::instance::LoaderKind;
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_loader_launch() {
+        let env = |key: &str| std::env::var(key).unwrap_or_else(|_| panic!("set {key}"));
+        let (java, game, loader_version) = (env("ORBIT_LIVE_JAVA"), env("ORBIT_LIVE_GAME"), env("ORBIT_LIVE_LOADER_VERSION"));
+        let loader = match env("ORBIT_LIVE_LOADER").as_str() {
+            "neoforge" => LoaderKind::NeoForge,
+            "fabric" => LoaderKind::Fabric,
+            _ => LoaderKind::Forge,
+        };
+        let root = std::env::temp_dir().join(format!("orbit-live-launch-{}-{game}", loader.as_str()));
+        let paths = AppPaths::new(&root);
+        paths.ensure().unwrap();
+        let http = reqwest::Client::builder().user_agent("orbit-launcher-test").build().unwrap();
+        crate::core::minecraft::loader::install_loader(&http, &paths, &root, loader, &game, &loader_version, std::path::Path::new(&java), crate::core::download::silent())
+            .await
+            .expect("install the loader");
+
+        let mut instance = Instance::new("live", game.clone(), loader);
+        instance.loader_version = Some(loader_version.clone());
+        // The game's Java: as the launcher picks it (downloading it if needed), unless forced.
+        instance.settings.java_path = std::env::var("ORBIT_LIVE_GAME_JAVA").ok();
+        let account = Account {
+            kind: AccountKind::Microsoft,
+            username: "OrbitTest".into(),
+            uuid: "00000000000000000000000000000001".into(),
+            access_token: "0".into(),
+            expires_at: chrono::Utc::now().timestamp() + 3600,
+            refresh_token: None,
+            skin_url: None,
+        };
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let events: GameEventSink = Arc::new(move |event| {
+            let _ = tx.send(event);
+        });
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let settings = Settings::default();
+        let launched = launch(LaunchRequest {
+            http: &http,
+            paths: &paths,
+            instance: &instance,
+            account: &account,
+            settings: &settings,
+            sink: crate::core::download::silent(),
+            events,
+            dry_run: false,
+            stop: Some(stop_rx),
+            session: 1,
+        })
+        .await;
+        let launched = launched.expect("start the game");
+        println!("started pid {} (log {})", launched.pid, launched.log_file);
+
+        // The title screen's resources are loading once the sound engine starts.
+        let mut reached = false;
+        let mut last = Vec::new();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(300);
+        let mut stop_tx = Some(stop_tx);
+        loop {
+            let event = match tokio::time::timeout_at(deadline, rx.recv()).await {
+                Ok(Some(event)) => event,
+                _ => break,
+            };
+            match event {
+                GameEvent::Output(output) => {
+                    let line = output.line;
+                    if line.contains("Exception") || line.contains("Error") || line.contains("FATAL") || line.contains("Sound engine started") {
+                        println!("| {}", line.chars().take(300).collect::<String>());
+                    }
+                    last.push(line.clone());
+                    if last.len() > 40 {
+                        last.remove(0);
+                    }
+                    if line.contains("Sound engine started") && !reached {
+                        reached = true;
+                        if let Some(stop) = stop_tx.take() {
+                            let _ = stop.send(());
+                        }
+                    }
+                }
+                GameEvent::Exit(exit) => {
+                    println!("exited with {:?} after {}s", exit.code, exit.play_secs);
+                    break;
+                }
+            }
+        }
+        if !reached {
+            if let Some(stop) = stop_tx.take() {
+                let _ = stop.send(());
+            }
+            println!("--- last lines:");
+            for line in &last {
+                println!("| {}", line.chars().take(400).collect::<String>());
+            }
+        }
+        assert!(reached, "the game didn't reach the title screen");
+    }
+}

@@ -135,10 +135,7 @@ pub async fn instance_create(
 
         // Forge-family installers need a Java runtime of their own.
         let java_path = match instance.loader {
-            LoaderKind::Forge | LoaderKind::NeoForge => java::detect(&state.paths, None, 17)
-                .await
-                .map(|r| r.as_path())
-                .ok_or_else(|| LauncherError::msg("Installing Forge requires Java 17 or newer."))?,
+            LoaderKind::Forge | LoaderKind::NeoForge => java::for_installer(&state.http, &state.paths, state.sink(&app)).await?.as_path(),
             _ => PathBuf::from("java"),
         };
 
@@ -386,10 +383,7 @@ pub async fn instance_install_loader(
     };
 
     let java_path = match instance.loader {
-        LoaderKind::Forge | LoaderKind::NeoForge => java::detect(&state.paths, None, 17)
-            .await
-            .map(|r| r.as_path())
-            .ok_or_else(|| LauncherError::msg("Installing Forge requires Java 17 or newer."))?,
+        LoaderKind::Forge | LoaderKind::NeoForge => java::for_installer(&state.http, &state.paths, state.sink(&app)).await?.as_path(),
         _ => PathBuf::from("java"),
     };
 
@@ -788,10 +782,7 @@ pub async fn modpack_import(
     if let Some(version) = loader_version.as_deref() {
         if loader != LoaderKind::Vanilla {
             let java_path = match loader {
-                LoaderKind::Forge | LoaderKind::NeoForge => java::detect(&state.paths, None, 17)
-                    .await
-                    .map(|r| r.as_path())
-                    .unwrap_or_else(|| PathBuf::from("java")),
+                LoaderKind::Forge | LoaderKind::NeoForge => java::for_installer(&state.http, &state.paths, state.sink(&app)).await?.as_path(),
                 _ => PathBuf::from("java"),
             };
             loader::install_loader(

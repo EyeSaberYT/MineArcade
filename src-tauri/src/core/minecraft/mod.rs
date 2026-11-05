@@ -123,6 +123,34 @@ pub async fn resolve(
 // File installation
 // ---------------------------------------------------------------------------
 
+/// The game jar to put on the classpath for `version`.
+///
+/// Forge and NeoForge (1.17+) load the game themselves, from their own patched copy, and
+/// tell their bootstrap to skip `${version_name}.jar`: the name the official launcher gives
+/// the game jar of a loader version, a copy in the loader version's own folder. Under its
+/// vanilla name (`1.20.1.jar`) it isn't skipped, the game loads twice and Java refuses to
+/// start ("Modules minecraft and _1._20._1 export package net.minecraft.server ..."). So
+/// those versions get that same copy; everything else uses the vanilla jar where it is.
+fn loader_named_client_jar(paths: &AppPaths, version: &VersionJson, base_version: &str, vanilla: PathBuf) -> Result<PathBuf> {
+    let skips_named_jar = serde_json::to_string(&version.arguments)
+        .map(|args| args.contains("${version_name}.jar"))
+        .unwrap_or(false);
+    if !skips_named_jar || version.id == base_version || !vanilla.is_file() {
+        return Ok(vanilla);
+    }
+    let named = paths.versions_dir().join(&version.id).join(format!("{}.jar", version.id));
+    let size = |path: &Path| std::fs::metadata(path).map(|m| m.len()).ok();
+    if size(&named) != size(&vanilla) {
+        if let Some(dir) = named.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let temp = named.with_extension("jar.tmp");
+        std::fs::copy(&vanilla, &temp)?;
+        std::fs::rename(&temp, &named)?;
+    }
+    Ok(named)
+}
+
 /// Download the client jar, libraries, assets and natives for a version.
 pub async fn ensure_files(
     http: &reqwest::Client,
@@ -256,7 +284,10 @@ pub async fn ensure_files(
             }
             specs.push(spec);
         }
-        classpath.push(dest);
+        // Each jar once: the same jar twice on the classpath crashes Forge-family loaders.
+        if !classpath.contains(&dest) {
+            classpath.push(dest);
+        }
     }
 
     // ---- assets -----------------------------------------------------------
@@ -330,6 +361,7 @@ pub async fn ensure_files(
     }
 
     // The client jar comes first on the classpath, like the vanilla launcher.
+    let client_jar = loader_named_client_jar(paths, version, base_version, client_jar)?;
     let mut full_classpath = vec![client_jar];
     full_classpath.extend(classpath);
 
