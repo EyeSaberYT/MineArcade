@@ -15,6 +15,8 @@ let timer = null;
 let fast = false;
 let polling = false;
 let lastMessage = 0;
+/** Refetching every chat after the server's message numbers went back: no pop-ups for old messages. */
+let resyncing = false;
 let account = null;
 /** The chat on screen: its messages aren't unread and don't pop up. */
 let openChat = null;
@@ -122,6 +124,16 @@ function apply(me, result) {
   const names = new Map(friends.map((f) => [f.uuid, friendName(f)]));
   const chats = store.state.chats;
   const unread = store.state.unread;
+  // Below what we've seen means the server lost its message file and numbers from 1 again:
+  // start the chats over, or every new message would be skipped as already seen.
+  const restarted = typeof result.lastMessage === 'number' && result.lastMessage < lastMessage;
+  if (restarted) {
+    lastMessage = 0;
+    chats.clear();
+    refreshFriends();
+  }
+  const quiet = restarted || resyncing;
+  resyncing = restarted;
   for (const message of result.messages ?? []) {
     if (message.id <= lastMessage) continue;
     lastMessage = message.id;
@@ -131,7 +143,7 @@ function apply(me, result) {
     chat.push(message);
     if (chat.length > HISTORY) chat.shift();
     chats.set(other, chat);
-    if (!mine && notify && other !== openChat) {
+    if (!mine && notify && !quiet && other !== openChat) {
       unread.set(other, (unread.get(other) ?? 0) + 1);
       toast(names.get(other) ?? 'A friend', {
         description: message.text,

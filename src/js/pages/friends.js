@@ -130,7 +130,7 @@ export function render(root, _params, query) {
         iconName: 'user',
         title: tab === 'friends' ? 'Pick a friend to chat' : tab === 'requests' ? 'Friend requests' : 'Blocked players',
         description: tab === 'friends'
-          ? 'Messages are shared with Orbit Client and last a day.'
+          ? 'Messages are shared with Orbit Client and kept on every device you sign in on.'
           : tab === 'requests' ? 'Requests reach players the next time they open Orbit Client or the launcher.'
           : "Blocked players can't send you requests or messages.",
       }));
